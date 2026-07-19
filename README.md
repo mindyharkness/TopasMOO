@@ -74,10 +74,10 @@ For a full walkthrough, plots, and validation metrics, run `python DevelopmentEx
 If you use TopasMOO, please cite it (placeholder entry until a DOI is available) and the TopasOpt paper:
 
 ```bibtex
-@software{harkness_topasmoo_2025,
+@software{harkness_topasmoo_2026,
   author       = {Harkness, Mindy},
   title        = {{TopasMOO}: Multi-objective optimization for {TOPAS} {Monte} {Carlo} simulations},
-  year         = {2025},
+  year         = {2026},
   url          = {https://github.com/mindyharkness/TopasMOO},
   note         = {Placeholder: replace with published citation when available},
 }
