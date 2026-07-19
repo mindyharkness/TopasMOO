@@ -1,0 +1,72 @@
+# TopasMOO `publication` (variant=medicalphysics)
+# Medical Physics journal-inspired style.
+#
+# The journal fits figures to an 80 mm (single) or 180 mm (double) column and
+# asks for >=20 pt fonts so text stays legible after that fit. We author at
+# ~2.3x the single-column width (~184 mm / 7.24 in) so the 20 pt fonts leave
+# the plot interior plenty of room and still reduce to ~9 pt once the figure
+# is placed in the 80 mm column. Double-column plots inherit the same scale
+# factor automatically via the plotting functions' scale_figsize() calls.
+
+figure.figsize: 7.244094, 5.433071
+figure.dpi: 150
+figure.constrained_layout.use: True
+figure.constrained_layout.w_pad: 0.12
+figure.constrained_layout.h_pad: 0.12
+figure.constrained_layout.wspace: 0.04
+figure.constrained_layout.hspace: 0.04
+
+savefig.dpi: 600
+savefig.bbox: tight
+savefig.pad_inches: 0.04
+
+font.family: sans-serif
+text.hinting: none
+font.sans-serif: Arial, Helvetica, Calibri, DejaVu Sans, sans-serif
+font.size: 20.0
+text.color: 000000
+
+axes.labelsize: 20.0
+axes.labelpad: 11.0
+axes.titlesize: 20.0
+axes.titleweight: normal
+axes.labelcolor: 000000
+axes.linewidth: 1.8
+axes.edgecolor: 000000
+axes.spines.top: False
+axes.spines.right: False
+axes.grid: True
+axes.axisbelow: True
+axes.formatter.useoffset: False
+axes.prop_cycle: cycler('color', ['005EB8', 'D71920', '00843D', '6F2C91', 'F2A900', '00A3E0', '000000'])
+
+grid.color: BFBFBF
+grid.linewidth: 0.9
+grid.alpha: 1.0
+
+xtick.labelsize: 20.0
+ytick.labelsize: 20.0
+xtick.color: 000000
+ytick.color: 000000
+xtick.major.width: 1.8
+ytick.major.width: 1.8
+xtick.minor.width: 1.2
+ytick.minor.width: 1.2
+xtick.major.size: 7.0
+ytick.major.size: 7.0
+xtick.minor.size: 3.5
+ytick.minor.size: 3.5
+xtick.minor.visible: True
+ytick.minor.visible: True
+xtick.direction: out
+ytick.direction: out
+
+lines.linewidth: 2.4
+lines.markersize: 8.0
+lines.markeredgewidth: 1.0
+patch.linewidth: 1.0
+
+legend.fontsize: 16.0
+legend.frameon: False
+legend.borderpad: 0.2
+legend.labelspacing: 0.25

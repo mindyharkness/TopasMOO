@@ -1,0 +1,82 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "topasmoo"
+version = "0.2.0"
+description = "Multi-objective optimization extension of TopasOpt for TOPAS Monte Carlo simulations"
+authors = [{name = "Mindy Harkness"}]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+keywords = ["topas", "monte-carlo", "multi-objective-optimization", "medical-physics", "radiation-therapy"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+dependencies = [
+    "numpy>=1.26.0",
+    "matplotlib>=3.8.0",
+    "pymoo>=0.6.0",
+]
+
+[project.optional-dependencies]
+# Extra packages used only by bundled examples / user objective functions
+# (not by the library itself): topas2numpy for reading real TOPAS scoring
+# output when writing custom objectives.
+examples = [
+    "topas2numpy>=0.2.0",
+]
+# Only needed for the opt-in `dump_optimization_settings=True` debug snapshot
+# (`OptimizationSettings.json`); resume does not use it.
+settings-dump = [
+    "jsonpickle>=4.0.0",
+]
+dev = [
+    "ruff>=0.5.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mpl>=0.17.0",
+    "coverage>=7.4.1",
+    "build>=1.2.0",
+    "twine>=5.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/mindyharkness/TopasMOO"
+Repository = "https://github.com/mindyharkness/TopasMOO"
+Issues = "https://github.com/mindyharkness/TopasMOO/issues"
+Changelog = "https://github.com/mindyharkness/TopasMOO/blob/main/CHANGELOG.md"
+
+[tool.poetry]
+packages = [{include = "TopasMOO"}]
+include = ["TopasMOO/plotting/*.mplstyle"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]
+ignore = [
+    "E501",  # line length handled by formatter; we keep messages readable
+    "B008",  # default arg call (matplotlib idioms)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B"]
+"examples/*" = ["B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

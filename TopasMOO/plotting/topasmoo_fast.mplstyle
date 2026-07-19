@@ -1,0 +1,47 @@
+# TopasMOO `fast` style
+# Cleaned-up matplotlib-default look for in-loop optimization plotting.
+# No grid, colorblind-safe Okabe-Ito palette, small but legible fonts.
+
+figure.figsize: 4.0, 3.0
+figure.dpi: 100
+figure.constrained_layout.use: True
+figure.constrained_layout.w_pad: 0.06
+figure.constrained_layout.h_pad: 0.06
+figure.constrained_layout.wspace: 0.04
+figure.constrained_layout.hspace: 0.04
+
+savefig.dpi: 150
+savefig.bbox: tight
+savefig.pad_inches: 0.05
+
+font.family: sans-serif
+text.hinting: none
+font.sans-serif: DejaVu Sans, Helvetica, Arial, sans-serif
+font.size: 9.0
+
+axes.labelsize: 9.5
+axes.labelpad: 5.0
+axes.titlesize: 10.0
+axes.titleweight: normal
+axes.linewidth: 0.8
+axes.spines.top: True
+axes.spines.right: True
+axes.grid: False
+axes.prop_cycle: cycler('color', ['0072B2', 'D55E00', '009E73', 'CC79A7', 'E69F00', '56B4E9'])
+
+xtick.labelsize: 8.5
+ytick.labelsize: 8.5
+xtick.major.width: 0.7
+ytick.major.width: 0.7
+xtick.direction: out
+ytick.direction: out
+
+lines.linewidth: 1.1
+lines.markersize: 3.8
+
+legend.fontsize: 8.0
+legend.frameon: True
+legend.framealpha: 0.85
+legend.edgecolor: 0.85
+legend.borderpad: 0.3
+legend.labelspacing: 0.3

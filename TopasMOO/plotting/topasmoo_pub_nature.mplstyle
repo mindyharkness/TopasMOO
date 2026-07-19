@@ -1,0 +1,54 @@
+# TopasMOO `publication` (variant=nature)
+# Modern Nature/Science feel: bold sans-serif, high contrast, no grid.
+# Qualitative palette follows the Nature Publishing Group house colors.
+
+figure.figsize: 3.5, 2.7
+figure.dpi: 150
+figure.constrained_layout.use: True
+figure.constrained_layout.w_pad: 0.08
+figure.constrained_layout.h_pad: 0.08
+figure.constrained_layout.wspace: 0.04
+figure.constrained_layout.hspace: 0.04
+
+savefig.dpi: 600
+savefig.bbox: tight
+savefig.pad_inches: 0.04
+
+font.family: sans-serif
+text.hinting: none
+font.sans-serif: Helvetica, Arial, DejaVu Sans, sans-serif
+font.weight: medium
+font.size: 9.5
+
+axes.labelsize: 10.5
+axes.labelpad: 6.0
+axes.labelweight: bold
+axes.titlesize: 11.5
+axes.titleweight: bold
+axes.linewidth: 1.0
+axes.edgecolor: 222222
+axes.spines.top: False
+axes.spines.right: False
+axes.grid: False
+axes.prop_cycle: cycler('color', ['E64B35', '4DBBD5', '00A087', '3C5488', 'F39B7F', '8491B4'])
+
+xtick.labelsize: 9.0
+ytick.labelsize: 9.0
+xtick.major.width: 1.0
+ytick.major.width: 1.0
+xtick.major.size: 3.5
+ytick.major.size: 3.5
+xtick.color: 222222
+ytick.color: 222222
+xtick.direction: out
+ytick.direction: out
+
+lines.linewidth: 1.7
+lines.markersize: 4.8
+lines.markeredgewidth: 0.6
+patch.linewidth: 0.8
+
+legend.fontsize: 8.5
+legend.frameon: False
+legend.borderpad: 0.3
+legend.labelspacing: 0.3

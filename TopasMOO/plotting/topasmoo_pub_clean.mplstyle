@@ -1,0 +1,60 @@
+# TopasMOO `publication` (variant=clean)
+# Modern clean: subtle grid, open axes, sans-serif, colorblind-safe palette.
+
+figure.figsize: 4.2, 3.2
+figure.dpi: 150
+figure.constrained_layout.use: True
+figure.constrained_layout.w_pad: 0.08
+figure.constrained_layout.h_pad: 0.08
+figure.constrained_layout.wspace: 0.04
+figure.constrained_layout.hspace: 0.04
+
+savefig.dpi: 600
+savefig.bbox: tight
+savefig.pad_inches: 0.06
+
+font.family: sans-serif
+text.hinting: none
+font.sans-serif: Helvetica, Arial, DejaVu Sans, sans-serif
+font.size: 10.5
+
+axes.labelsize: 11.0
+axes.labelpad: 6.0
+axes.titlesize: 11.0
+axes.titleweight: normal
+axes.linewidth: 1.0
+axes.edgecolor: 111111
+axes.spines.top: False
+axes.spines.right: False
+axes.grid: True
+axes.axisbelow: True
+axes.prop_cycle: cycler('color', ['0072B2', 'D55E00', '009E73', 'CC79A7', 'E69F00', '56B4E9', '000000'])
+grid.color: D9D9D9
+grid.linewidth: 0.7
+grid.alpha: 0.85
+
+xtick.labelsize: 9.5
+ytick.labelsize: 9.5
+xtick.color: 111111
+ytick.color: 111111
+xtick.major.width: 1.0
+ytick.major.width: 1.0
+xtick.major.size: 3.8
+ytick.major.size: 3.8
+xtick.minor.visible: False
+ytick.minor.visible: False
+xtick.direction: out
+ytick.direction: out
+
+lines.linewidth: 1.6
+lines.markersize: 4.6
+lines.markeredgewidth: 0.6
+patch.linewidth: 0.7
+
+legend.fontsize: 9.0
+legend.frameon: True
+legend.framealpha: 0.92
+legend.facecolor: white
+legend.edgecolor: D0D0D0
+legend.borderpad: 0.35
+legend.labelspacing: 0.35

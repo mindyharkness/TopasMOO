@@ -1,0 +1,67 @@
+# TopasMOO `publication` (variant=ieee)
+# Engineering/IEEE feel: Computer Modern serif, boxed axes, dense ticks, no grid.
+# Uses mathtext 'cm' fontset so labels look LaTeX-like without requiring usetex.
+
+figure.figsize: 3.5, 2.7
+figure.dpi: 150
+figure.constrained_layout.use: True
+figure.constrained_layout.w_pad: 0.07
+figure.constrained_layout.h_pad: 0.07
+figure.constrained_layout.wspace: 0.04
+figure.constrained_layout.hspace: 0.04
+
+savefig.dpi: 600
+savefig.bbox: tight
+savefig.pad_inches: 0.04
+
+font.family: serif
+text.hinting: none
+font.serif: cmr10, Computer Modern Roman, STIXGeneral, DejaVu Serif, serif
+font.size: 9.0
+
+mathtext.fontset: cm
+mathtext.rm: cmr10
+axes.formatter.use_mathtext: True
+# cmr10 has no Unicode minus glyph; use ASCII hyphen-minus in labels.
+axes.unicode_minus: False
+
+axes.labelsize: 9.5
+axes.labelpad: 5.0
+axes.titlesize: 10.0
+axes.titleweight: normal
+axes.linewidth: 0.7
+axes.spines.top: True
+axes.spines.right: True
+axes.grid: False
+# Paul Tol high-contrast + muted colors: distinguishable in color, in
+# grayscale print, and with the paired linestyle cycle below.
+axes.prop_cycle: cycler('color', ['004488', 'BB5566', '117733', 'DDAA33', '882255', '332288']) + cycler('linestyle', ['-', '--', '-.', ':', '-', '--'])
+
+xtick.labelsize: 8.0
+ytick.labelsize: 8.0
+xtick.major.width: 0.7
+ytick.major.width: 0.7
+xtick.minor.width: 0.5
+ytick.minor.width: 0.5
+xtick.major.size: 3.2
+ytick.major.size: 3.2
+xtick.minor.size: 1.8
+ytick.minor.size: 1.8
+xtick.minor.visible: True
+ytick.minor.visible: True
+xtick.direction: in
+ytick.direction: in
+xtick.top: True
+ytick.right: True
+
+lines.linewidth: 1.1
+lines.markersize: 3.8
+patch.linewidth: 0.6
+
+legend.fontsize: 7.5
+legend.frameon: True
+legend.framealpha: 1.0
+legend.edgecolor: 0.4
+legend.fancybox: False
+legend.borderpad: 0.35
+legend.labelspacing: 0.3

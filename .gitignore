@@ -1,0 +1,43 @@
+# Local Python environments
+.venv/
+venv/
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# OS/editor artifacts
+.DS_Store
+.idea/
+.vscode/
+
+# Local scratch / do-not-publish material
+DONTUPLOAD/
+
+# Local generated outputs
+style_previews/
+examples/style_evaluation/
+local_files/
+
+# Generated optimization run outputs
+examples/DevelopmentExample/DevelopmentExample_MOO/
+examples/ApertureOptimization/ApertureOptimization_MOO/
+examples/**/logs/
+examples/**/Results/
+examples/**/TopasScripts/
+DONOTUPLOAD/
+
+# Local run artifacts / scratch configs
+SmallAnimal_10MeV_Opt_6_3/
+SmallAnimal_compat_test/
+beam_config.json
