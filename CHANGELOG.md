@@ -5,7 +5,7 @@ All notable changes to TopasMOO will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-07-18
 
 First release published to PyPI. Pre-1.0 cleanup; breaking changes from
 0.1.x are listed below.
@@ -44,7 +44,6 @@ First release published to PyPI. Pre-1.0 cleanup; breaking changes from
   (Computer Modern serif). Selectable via `apply_style("publication",
   variant=...)` or the `publication_variant` constructor arg on the
   optimizer.
-- `CONTRIBUTING.md` with the actual `uv` + `ruff` + `pytest` workflow.
 
 ### Changed
 
@@ -131,11 +130,13 @@ First release published to PyPI. Pre-1.0 cleanup; breaking changes from
 
 ### Removed
 
-- **Breaking:** `TopasMOO.utilities` module deleted. The deprecation
-  wrappers (`PlotParetoFront`, `PlotConvergenceMultiObjective`,
-  `PlotParameterConvergence`, `setup_publication_style`) were emitting
-  `FutureWarning` since 0.1.x. Use the canonical functions in
-  `TopasMOO.plotting` or `TopasMOO.plotting.style.apply_style` instead.
+- **Breaking:** The deprecated public wrappers in `TopasMOO.utilities`
+  (`PlotParetoFront`, `PlotConvergenceMultiObjective`,
+  `PlotParameterConvergence`, `setup_publication_style`) were removed; they
+  had been emitting `FutureWarning` since 0.1.x. Use the canonical functions
+  in `TopasMOO.plotting` or `TopasMOO.plotting.style.apply_style` instead.
+  The module itself remains, but now holds only internal helpers and is not
+  part of the public API.
 - Sphinx, Read-the-docs, and recommonmark dev-dependencies removed.
   Docs are now Markdown-only under `docsrc/`.
 
