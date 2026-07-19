@@ -5,7 +5,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/topasmoo.svg)](https://pypi.org/project/topasmoo/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-TopasMOO is a Python toolkit for multi-objective optimization of TOPAS Monte Carlo radiation therapy simulations, enabling automated discovery of Pareto-optimal treatment designs.
+TopasMOO is a Python toolkit for multi-objective optimization of TOPAS Monte Carlo radiation therapy simulations, enabling automated discovery of Pareto-optimal simulation configurations.
 
 ## Installation
 
