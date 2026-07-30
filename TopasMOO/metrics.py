@@ -33,6 +33,29 @@ def normalize_objectives(
     return normalized, ideal, nadir
 
 
+def hypervolume_reference_point(objectives: np.ndarray) -> np.ndarray:
+    """Return a hypervolume reference dominated by every given solution.
+
+    The point is the observed nadir pushed out by ten percent of the observed
+    span, so every solution contributes positive volume. Objectives with zero
+    span (a single distinct value) use a unit margin rather than collapsing the
+    box to zero width.
+
+    A single shared definition matters because the margin sets the hypervolume
+    scale: histories computed with different margins are not comparable.
+
+    :param objectives: Array of shape ``(n_solutions, n_objectives)``, minimized.
+
+    :returns: Reference point of shape ``(n_objectives,)``.
+    """
+    objectives = np.asarray(objectives, dtype=float)
+    ideal = objectives.min(axis=0)
+    nadir = objectives.max(axis=0)
+    span = nadir - ideal
+    span[span == 0] = 1.0
+    return nadir + 0.1 * span
+
+
 def calculate_knee_point(pareto_objectives: np.ndarray) -> int:
     """Find the knee point (best trade-off) on a Pareto front.
 
@@ -139,3 +162,4 @@ def calculate_dominance_rank(objectives: np.ndarray) -> np.ndarray:
         rank += 1
 
     return ranks
+

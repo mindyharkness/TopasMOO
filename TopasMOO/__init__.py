@@ -2,14 +2,18 @@
 TopasMOO: Multi-Objective Optimization for TOPAS Monte Carlo Simulations
 
 TopasMOO extends the TopasOpt framework to handle multiple competing objectives
-using pymoo algorithms, particularly NSGA-II.
+using pymoo algorithms (particularly NSGA-II) and optionally BoTorch MOBO.
 
 Each optimization must import:
 ``NSGAII_Optimizer``
-    The optimizer you construct and run (``.RunOptimization()``). This is the
-    main entry point for most users.
+    The pymoo NSGA-II optimizer you construct and run (``.RunOptimization()``).
+    The main entry point for most users.
+``MOBOOptimizer``
+    Bayesian multi-objective optimizer (requires ``uv sync --extra mobo``).
+    Drop-in sibling of ``NSGAII_Optimizer`` for expensive campaigns.
 ``TopasMOOBaseClass``
-    Base class to subclass if you want to drive a different pymoo algorithm.
+    Shared base for both optimizers; subclass it to drive a different algorithm
+    while reusing evaluation, logging, and plotting.
 
 The full visualization toolbox (Pareto fronts, petal diagrams, convergence plots,
 etc.) lives in the TopasMOO.plotting subpackage; only the style entry
@@ -42,10 +46,13 @@ from .metrics import (
     calculate_crowding_distance,
     calculate_dominance_rank,
     calculate_knee_point,
+    hypervolume_reference_point,
 )
 
 # Core optimizer classes (TopasProblem is an internal pymoo adapter that stays
-# in TopasMOO.optimizers).
+# in TopasMOO.optimizers). MOBO is imported lazily-safe: the module imports
+# without BoTorch; constructing MOBOOptimizer requires the mobo extra.
+from .mobo import MOBOOptimizer
 from .optimizers import NSGAII_Optimizer, TopasMOOBaseClass
 
 # Plotting style entry points (the full plotting API lives in TopasMOO.plotting).
@@ -59,6 +66,7 @@ from .plotting import (
 __all__ = [
     # Core classes
     "NSGAII_Optimizer",
+    "MOBOOptimizer",
     "TopasMOOBaseClass",
     # Exceptions
     "TopasMOOError",
@@ -70,6 +78,7 @@ __all__ = [
     "calculate_knee_point",
     "calculate_crowding_distance",
     "calculate_dominance_rank",
+    "hypervolume_reference_point",
     # IO
     "ReadInMultiObjectiveLogFile",
     "LogParetoFrontToFile",
@@ -79,3 +88,4 @@ __all__ = [
     "publication_style",
     "save_publication_figure",
 ]
+

@@ -32,14 +32,15 @@ def plot_hypervolume_convergence(
     *,
     ax: Axes | None = None,
     title: str = "Hypervolume Convergence",
-    xlabel: str = "Generation",
+    xlabel: str = "Generation / batch",
     ylabel: str = "Hypervolume",
     reference_hv: float | None = None,
     dpi: int | None = None,
 ) -> Axes:
-    """Plot hypervolume indicator vs. generation.
+    """Plot hypervolume indicator vs. algorithm step.
 
-    :param hv_history: Sequence of hypervolume values, one per generation.
+    :param hv_history: Sequence of hypervolume values, one per NSGA-II
+        generation or MOBO batch (including the initial-design tell).
     :param save_path: If provided, save ``.pdf`` and ``.png`` to this path.
     :param ax: Optional matplotlib Axes for embedding in multi-panel figures.
     :param title: Plot title.
@@ -85,3 +86,4 @@ def plot_hypervolume_convergence(
     finalize_figure(fig, save_path, own_fig=own_fig, dpi=dpi)
 
     return ax
+

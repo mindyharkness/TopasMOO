@@ -11,9 +11,7 @@ Tests cover:
 - Comprehensive visualization generator
 - Edge cases and error handling
 """
-import shutil
 import sys
-import tempfile
 import warnings
 from pathlib import Path
 
@@ -52,12 +50,7 @@ from TopasMOO.plotting.style import apply_style
 # ============================================================================
 
 
-@pytest.fixture
-def temp_dir():
-    """Create and cleanup temporary directory"""
-    tmpdir = tempfile.mkdtemp()
-    yield tmpdir
-    shutil.rmtree(tmpdir, ignore_errors=True)
+# temp_dir comes from tests/conftest.py.
 
 
 @pytest.fixture
