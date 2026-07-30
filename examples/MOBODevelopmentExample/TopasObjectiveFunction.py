@@ -10,10 +10,6 @@ from pathlib import Path
 
 import numpy as np
 
-#: Must match ``PARAM_PREFIX`` in ``GenerateTopasScripts.py``. Deliberately a
-#: local literal rather than an import: the two user scripts are loaded from an
-#: absolute path under unique module names, and importing a sibling by its bare
-#: name would collide across optimization directories in the same process.
 PARAM_PREFIX = "# PARAM "
 
 

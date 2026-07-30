@@ -3,35 +3,26 @@ TOPAS script generator for the Development Example. This is run in testing mode,
 It records the current decision variables as comments so ``TopasObjectiveFunction`` can read them back in testing mode.
 """
 
+PARAM_PREFIX = "# PARAM "
+
+
 def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     """Generate the TOPAS script(s) for one optimization iteration.
 
-    This is the minimal generator for the ZDT1 development example. It does not
-    produce a runnable TOPAS simulation; instead it records the current decision
-    variables as comments so ``TopasObjectiveFunction`` can read them back in
-    testing mode. The structure (a function with this exact name and signature,
-    returning a list of scripts and a list of names) is what the framework
-    requires, so a real study can swap the body for genuine TOPAS input.
-
     :param BaseDirectory: Base directory for simulation outputs.
     :param iteration: Current iteration number.
-    :param **variable_dict: Current parameter values keyed by parameter name
-        (ZDT1 uses ``x1`` through ``x5``).
+    :param **variable_dict: Current parameter values keyed by parameter name.
 
-    :returns: A tuple ``(scripts, names)`` where ``scripts`` is a list of scripts
-        (each a list of lines) and ``names`` is the matching list of base
-        filenames. Return multiple entries if your simulation needs multiple
-        files.
+    :returns: Tuple ``(scripts, names)`` -- a list of scripts (each a list of
+        lines) and the matching list of base filenames.
     """
-    # ZDT1 uses x1 through x5. Store the parameters in comments so
-    # TopasObjectiveFunction can read them back in testing mode; a real
-    # application would instead emit world geometry, beam source, scoring
-    # volumes, and a physics list here.
-    script = ["# ZDT1 Benchmark Test script for development"]
-    script.append(f"# This is iteration {iteration}")
-    # Record the current decision variables
-    for i in range(1, 6):
-        script.append(f"# x{i} = {variable_dict.get(f'x{i}', 0.5)}")
-
-    # Return as a list of scripts and a list of names.
+    script = ["# Development Example (ZDT1 in testing_mode)"]
+    script.append(f"# iteration {iteration}")
+    # Iterate in insertion order, which is the optimizer's ParameterNames order
+    # (VariableDict is built from it and ``**kwargs`` preserves that order).
+    # Sorting here would reorder the vector lexicographically, so "x10" would
+    # land between "x1" and "x2" and the objective would score a permuted design.
+    for key, value in variable_dict.items():
+        script.append(f"{PARAM_PREFIX}{key} = {value}")
     return [script], ["DevelopmentExample"]
+

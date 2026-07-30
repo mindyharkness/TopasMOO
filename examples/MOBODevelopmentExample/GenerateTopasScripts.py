@@ -5,10 +5,7 @@ decision variables as comments so ``TopasObjectiveFunction`` can read them back
 in testing mode. A real study swaps the body for genuine TOPAS input.
 """
 
-#: Prefix marking a decision-variable line, so the objective's parser cannot
-#: mistake an ordinary comment (``# Physics = QGSP_BIC``) for a parameter.
-#: ``TopasObjectiveFunction.py`` repeats this literal -- see the note there for
-#: why the two scripts do not import it from each other.
+
 PARAM_PREFIX = "# PARAM "
 
 
