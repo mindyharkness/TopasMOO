@@ -754,14 +754,23 @@ class MOBOOptimizer(TopasMOOBaseClass):
     def _acqf_ref_point_botorch(self):
         """Reference point for acquisition in BoTorch (maximize) space.
 
-        The point is inferred from eligible observations only: an infeasible
-        outlier would drag the reference into a region the acquisition is not
-        allowed to exploit, and a penalized failure carries ``failure_penalty``
-        in every objective, which would push it out by orders of magnitude.
-        Falls back to all observations while nothing eligible exists yet.
+        When no user ``ref_point`` is given, the reference is the anti-ideal
+        point (component-wise worst observed value) across all eligible
+        observations, padded by 10 % of the per-objective range.  This follows
+        the recommendation of Ishibuchi et al. (2018): using the Pareto-front
+        nadir instead biases the search toward the current front and prevents
+        the acquisition from rewarding exploration beyond it.
 
-        ``infer_reference_point`` is documented to take Pareto-optimal points,
-        so the eligible set is reduced to its non-dominated front first
+            Ishibuchi, H., Imada, R., Setoguchi, Y., & Nojima, Y. (2018).
+            Reference Point Specification in Hypervolume Calculation for Fair
+            Comparison and Efficient Search.  *Proc. GECCO*, pp. 585--592.
+
+        Eligible observations exclude infeasible designs and penalized
+        failures: an infeasible outlier would drag the reference into a
+        region the acquisition is not allowed to exploit, and a penalized
+        failure carries ``failure_penalty`` in every objective which would
+        push the reference out by orders of magnitude.  Falls back to all
+        observations while nothing eligible exists yet.
         """
         bt = self._ensure_botorch()
         torch = bt["torch"]
@@ -791,7 +800,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 )
             return user_max
 
-        return bt["infer_reference_point"](Y_max[bt["is_non_dominated"](Y_max)])
+        return bt["infer_reference_point"](Y_max)
 
     # Shared margin formula with NSGAII_Optimizer
     # MOBO feeds eligible observations into that formula, NSGA-II feeds each

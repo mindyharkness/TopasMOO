@@ -7,7 +7,10 @@ from pathlib import Path
 
 import numpy as np
 
+import ValidationMetrics as vm
+
 from TopasMOO import MOBOOptimizer
+
 
 BaseDirectory = str(Path(__file__).parent)
 SimulationName = "MOBODevelopmentExample_Run"
@@ -56,3 +59,14 @@ print("Starting MOBO optimization...")
 results = optimizer.RunOptimization()
 print(f"Pareto solutions: {len(results.F)}")
 print(f"Final hypervolume (history): {optimizer.HypervolumeHistory[-1]:.6f}")
+
+output_dir = Path(BaseDirectory) / SimulationName / "validation"
+summary = vm.generate_zdt1_validation(results, output_dir)
+
+status = "PASS" if summary.passed else "FAIL"
+print(f"\nZDT1 validation: {status}")
+print(f"  Pareto solutions: {summary.solution_count}")
+print(f"  IGD: {summary.igd:.6f}")
+print(f"  Hypervolume: {summary.hypervolume:.6f}")
+print(f"  Maximum front error: {summary.max_front_error:.6f}")
+print(f"  Outputs: {output_dir}")

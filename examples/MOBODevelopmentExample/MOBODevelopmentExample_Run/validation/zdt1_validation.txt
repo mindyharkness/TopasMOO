@@ -1,0 +1,11 @@
+ZDT1 numerical validation
+Status: PASS
+Pareto solutions: 37
+IGD: 0.024704 (limit: 0.050000)
+Hypervolume: 0.846662 (reference: [1.1, 1.1])
+Maximum front error: 0.000000 (limit: 0.050000)
+f1 range: [0.000000, 1.000000]
+f2 range: [0.000000, 1.000000]
+
+IGD measures coverage of the analytical front; lower is better.
+Maximum front error measures convergence to f2 = 1 - sqrt(f1); lower is better.
