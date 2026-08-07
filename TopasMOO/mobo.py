@@ -19,9 +19,9 @@ don't need to install BoTorch + its dependencies):
 
     uv sync --extra mobo
 
-BoTorch maximizes objectives; TopasMOO minimizes. The sign flip happens in
-exactly one place (`MOBOOptimizer._to_botorch_objectives`) and is undone
-before results are handed to plotting.
+BoTorch maximizes objectives; TopasMOO minimizes. Conversion between those
+conventions is centralized in ``MOBOOptimizer._to_botorch_objectives`` and
+``MOBOOptimizer._from_botorch_objectives``.
 """
 
 from __future__ import annotations
@@ -489,12 +489,17 @@ class MOBOOptimizer(TopasMOOBaseClass):
         if self.seed is not None:
             np.random.seed(self.seed)
 
-    # Minimization-maximization sign flip (single place)
+    # Minimization-maximization boundary conversions
 
     @staticmethod
     def _to_botorch_objectives(Y_min: np.ndarray) -> np.ndarray:
         """Minimization (TopasMOO) → maximization (BoTorch)."""
         return -np.asarray(Y_min, dtype=float)
+
+    @staticmethod
+    def _from_botorch_objectives(Y_max: np.ndarray) -> np.ndarray:
+        """Maximization (BoTorch) → minimization (TopasMOO)."""
+        return -np.asarray(Y_max, dtype=float)
 
     @staticmethod
     def _to_botorch_variance(Yvar_min: np.ndarray) -> np.ndarray:
