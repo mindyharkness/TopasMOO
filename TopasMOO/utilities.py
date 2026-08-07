@@ -6,9 +6,9 @@ import importlib.util
 import logging
 import os
 import sys
-import numpy as np
-
 from typing import Any
+
+import numpy as np
 
 from .exceptions import InvalidParameterError
 
