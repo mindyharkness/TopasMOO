@@ -45,6 +45,10 @@ print(f"Found {len(results.F)} Pareto-optimal solutions!")
 
 ### File 2: Objective Function (`TopasObjectiveFunction.py`)
 
+TopasMOO uses one convention for both NSGA-II/pymoo and MOBO/BoTorch: **every
+returned objective is minimized**. Negate a quantity when larger values are
+better; MOBO handles the internal sign conversion required by BoTorch.
+
 ```python
 def TopasObjectiveFunction(ResultsLocation, iteration):
     """
@@ -55,8 +59,8 @@ def TopasObjectiveFunction(ResultsLocation, iteration):
     # from TopasOpt.utilities import WaterTankData
     # data = WaterTankData(ResultsLocation, f'dose_itt_{iteration}.bin')
 
-    obj1 = calculate_first_objective()   # e.g., dose uniformity
-    obj2 = calculate_second_objective()  # e.g., beam efficiency
+    obj1 = calculate_dose_nonuniformity()  # Lower is better
+    obj2 = -calculate_beam_efficiency()    # Negate because higher is better
 
     return [obj1, obj2]  # MUST be a list or array
 ```

@@ -68,12 +68,14 @@ class TestTensorHelper:
 
 
 class TestSignRoundTrip:
-    def test_sign_flip_round_trip(self):
+    def test_topasmoo_minimization_is_negated_for_botorch(self):
         Y = np.array([[1.0, 2.0], [0.5, 3.0]])
+        Y_botorch = MOBOOptimizer._to_botorch_objectives(Y)
+
+        np.testing.assert_array_equal(Y_botorch, -Y)
+        assert np.argmin(Y[:, 0]) == np.argmax(Y_botorch[:, 0])
         assert np.allclose(
-            MOBOOptimizer._from_botorch_objectives(
-                MOBOOptimizer._to_botorch_objectives(Y)
-            ),
+            MOBOOptimizer._from_botorch_objectives(Y_botorch),
             Y,
         )
 
@@ -127,6 +129,18 @@ class TestMOBOSmoke:
         opt.SetUpDirectoryStructure()
         X0 = opt.ask()
         assert np.allclose(X0[0], opt.StartingValues)
+
+    def test_reported_front_minimizes_like_nsga(self, temp_dir, opt_dir):
+        opt = _make_mobo(temp_dir, opt_dir, SimulationName="mobo_minimizes")
+        opt.SetUpDirectoryStructure()
+
+        X = np.array([[0.0, 0.0], [0.5, 0.5], [1.0, 1.0]])
+        Y = np.array([[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]])
+        opt.tell(X, Y)
+
+        # pymoo/NSGA-II also treats [1, 1] as dominating the larger rows.
+        np.testing.assert_array_equal(opt.ParetoObjectives, [[1.0, 1.0]])
+        np.testing.assert_array_equal(opt.ParetoDecisionVars, [[0.0, 0.0]])
 
     def test_pareto_front_files_match_nsga_contract(self, temp_dir, opt_dir):
         """Running + final Pareto files use the same split as NSGA-II."""
