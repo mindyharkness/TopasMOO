@@ -68,12 +68,14 @@ class TestTensorHelper:
 
 
 class TestSignRoundTrip:
-    def test_sign_flip_round_trip(self):
+    def test_topasmoo_minimization_is_negated_for_botorch(self):
         Y = np.array([[1.0, 2.0], [0.5, 3.0]])
+        Y_botorch = MOBOOptimizer._to_botorch_objectives(Y)
+
+        np.testing.assert_array_equal(Y_botorch, -Y)
+        assert np.argmin(Y[:, 0]) == np.argmax(Y_botorch[:, 0])
         assert np.allclose(
-            MOBOOptimizer._from_botorch_objectives(
-                MOBOOptimizer._to_botorch_objectives(Y)
-            ),
+            MOBOOptimizer._from_botorch_objectives(Y_botorch),
             Y,
         )
 
@@ -102,6 +104,16 @@ class TestMOBOSmoke:
         assert opt2.train_X is not None
         assert len(opt2.train_X) == len(opt.train_X)
         assert np.allclose(opt2.train_Y, opt.train_Y)
+        assert opt.gp_prediction_history is not None
+        assert opt2.gp_prediction_history is not None
+        assert opt.gp_prediction_history.shape == opt.train_Y.shape
+        assert np.all(np.isnan(opt.gp_prediction_history[: opt.n_init]))
+        assert np.all(np.isfinite(opt.gp_prediction_history[opt.n_init :]))
+        assert np.allclose(
+            opt2.gp_prediction_history,
+            opt.gp_prediction_history,
+            equal_nan=True,
+        )
 
     def test_results_feed_rundata(self, temp_dir, opt_dir):
         opt = _make_mobo(temp_dir, opt_dir, SimulationName="mobo_smoke_plot")
@@ -111,6 +123,55 @@ class TestMOBOSmoke:
         assert data.pareto_objectives.shape[1] == 2
         assert len(data.hypervolume_history) >= 1
         assert data.n_objectives == 2
+        assert data.observed_objectives is opt.train_Y
+        assert data.gp_prediction_history is opt.gp_prediction_history
+        assert data.failed_mask is opt.train_failed
+
+    def test_posterior_predictions_return_to_minimization_space(self, temp_dir, opt_dir):
+        import torch
+
+        class _Posterior:
+            mean = torch.tensor([[-2.0, -3.0]], dtype=torch.double)
+
+        class _Model:
+            def eval(self):
+                return self
+
+            def posterior(self, _X):
+                return _Posterior()
+
+        opt = _make_mobo(temp_dir, opt_dir, SimulationName="mobo_prediction_sign")
+        prediction = opt._posterior_mean_minimization(
+            np.array([[0.25, 0.75]]),
+            model=_Model(),
+        )
+        np.testing.assert_array_equal(prediction, [[2.0, 3.0]])
+
+    def test_old_checkpoint_without_prediction_history_loads(self, temp_dir, opt_dir):
+        opt = _make_mobo(temp_dir, opt_dir, SimulationName="mobo_old_prediction_ckpt")
+        opt.SetUpDirectoryStructure()
+        opt.run(n_batches=1)
+        checkpoint = Path(opt._mobo_ckpt_path())
+
+        with np.load(checkpoint, allow_pickle=False) as stored:
+            legacy = {
+                key: np.asarray(stored[key]).copy()
+                for key in stored.files
+                if key not in {"gp_prediction_history", "pending_gp_predictions"}
+            }
+        np.savez_compressed(checkpoint, **legacy)
+
+        restored = _make_mobo(
+            temp_dir,
+            opt_dir,
+            SimulationName="mobo_old_prediction_ckpt",
+            Overwrite=False,
+            resume=True,
+        )
+        assert restored.load_checkpoint()
+        assert restored.gp_prediction_history is not None
+        assert restored.gp_prediction_history.shape == restored.train_Y.shape
+        assert np.all(np.isnan(restored.gp_prediction_history))
 
     def test_seed_reproducibility(self, temp_dir, opt_dir):
         a = _make_mobo(temp_dir, opt_dir, SimulationName="mobo_seed_a", seed=123)
@@ -122,11 +183,42 @@ class TestMOBOSmoke:
         Xb = b.ask()
         assert np.allclose(Xa, Xb)
 
+    def test_pending_initial_predictions_survive_checkpoint(self, temp_dir, opt_dir):
+        opt = _make_mobo(temp_dir, opt_dir, SimulationName="mobo_pending_predictions")
+        X = opt.ask()
+        assert opt._pending_gp_predictions is not None
+        assert np.all(np.isnan(opt._pending_gp_predictions))
+
+        restored = _make_mobo(
+            temp_dir,
+            opt_dir,
+            SimulationName="mobo_pending_predictions",
+            Overwrite=False,
+            resume=True,
+        )
+        assert restored.load_checkpoint()
+        assert np.array_equal(restored._pending_X, X)
+        assert restored._pending_gp_predictions is not None
+        assert restored._pending_gp_predictions.shape == (opt.n_init, opt.n_objectives)
+        assert np.all(np.isnan(restored._pending_gp_predictions))
+
     def test_start_point_injected_like_nsga(self, temp_dir, opt_dir):
         opt = _make_mobo(temp_dir, opt_dir, SimulationName="mobo_start", n_init=6)
         opt.SetUpDirectoryStructure()
         X0 = opt.ask()
         assert np.allclose(X0[0], opt.StartingValues)
+
+    def test_reported_front_minimizes_like_nsga(self, temp_dir, opt_dir):
+        opt = _make_mobo(temp_dir, opt_dir, SimulationName="mobo_minimizes")
+        opt.SetUpDirectoryStructure()
+
+        X = np.array([[0.0, 0.0], [0.5, 0.5], [1.0, 1.0]])
+        Y = np.array([[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]])
+        opt.tell(X, Y)
+
+        # pymoo/NSGA-II also treats [1, 1] as dominating the larger rows.
+        np.testing.assert_array_equal(opt.ParetoObjectives, [[1.0, 1.0]])
+        np.testing.assert_array_equal(opt.ParetoDecisionVars, [[0.0, 0.0]])
 
     def test_pareto_front_files_match_nsga_contract(self, temp_dir, opt_dir):
         """Running + final Pareto files use the same split as NSGA-II."""

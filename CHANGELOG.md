@@ -50,6 +50,13 @@ BoTorch, offered alongside NSGA-II from a shared base class.
   (plus a `.meta.json` sidecar) and validated against the current problem on
   load. A new `_restore_algorithm_state()` hook on `TopasMOOBaseClass` gives
   resume a single trigger, fired from `SetUpDirectoryStructure()`.
+- **Prospective GP prediction correlation plots.** `MOBOOptimizer` records the
+  posterior mean for every acquisition candidate before evaluation and carries
+  that history through checkpoint/resume. The new
+  `plot_gp_prediction_correlation()` public plotting function produces one
+  observed-versus-predicted panel per objective with Pearson and Spearman
+  correlations. Completed MOBO runs include this diagnostic by default;
+  NSGA-II output is unchanged.
 - `hypervolume_reference_point()` in `TopasMOO.metrics`, exported at the top
   level. Both optimizers now share one reference-point margin formula (the
   observed nadir pushed out by 10% of the observed span), so hypervolume

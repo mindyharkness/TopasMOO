@@ -8,7 +8,7 @@ Publication-quality visualizations for multi-objective optimization in TopasMOO.
   scienceplots or LaTeX install required
 - Dual PDF + PNG output (default raster DPI 600)
 - Pareto fronts, parallel coordinates, petal diagrams, convergence,
-  hypervolume, and decision–objective views
+  hypervolume, decision–objective views, and MOBO GP diagnostics
 - One-call final suite via `GenerateComprehensiveVisualizations`
 
 ## Quick Start
@@ -69,6 +69,29 @@ python examples/quickstart.py
 - `plot_hypervolume_convergence` — hypervolume vs generation
 - `plot_population_evolution` — generation overlays (first two objectives)
 
+### MOBO diagnostics
+
+- `plot_gp_prediction_correlation` — one observed-versus-predicted panel per
+  objective, with a perfect-prediction line and Pearson/Spearman correlations
+
+The GP diagnostic uses the posterior mean recorded when `MOBOOptimizer.ask()`
+proposes each candidate, before the objective is evaluated. Initial-design
+rows have no fitted GP and are omitted, as are penalized evaluation failures.
+This makes the figure a prospective model check rather than an optimistic fit
+of the final GP to its own training data.
+
+```python
+from TopasMOO.plotting import plot_gp_prediction_correlation
+
+plot_gp_prediction_correlation(
+    optimizer.train_Y,
+    optimizer.gp_prediction_history,
+    "gp_prediction_correlation",
+    objective_names=["Dose error", "Delivery time"],
+    valid_mask=~optimizer.train_failed,
+)
+```
+
 ## Default final suite
 
 `NSGAII_Optimizer.RunOptimization()` writes figures under
@@ -82,9 +105,13 @@ python examples/quickstart.py
 - `parameter_convergence`
 - `hypervolume` (skipped quietly when history is unavailable)
 
+MOBO runs also generate `GPPredictionCorrelation.{pdf,png}` by default once
+prospective predictions are available. NSGA-II output is unchanged.
+
 Pass `final_plots="all"`, a single key such as `final_plots="pareto"`, or an
 explicit set for parallel coordinates, decision heatmaps, population evolution,
-petal diagrams, and correlation plots.
+petal diagrams, parameter correlations, and GP correlation plots. The explicit
+key for the MOBO diagnostic is `final_plots="gp_correlation"`.
 
 ```python
 from TopasMOO.plotting import GenerateComprehensiveVisualizations
@@ -123,4 +150,5 @@ session style.
 ## API Reference
 
 See docstrings under `TopasMOO/plotting/` (`pareto.py`, `parallel.py`,
-`petal.py`, `correlation.py`, `convergence.py`, `comprehensive.py`, `style.py`).
+`petal.py`, `correlation.py`, `gp_correlation.py`, `convergence.py`,
+`comprehensive.py`, `style.py`).
