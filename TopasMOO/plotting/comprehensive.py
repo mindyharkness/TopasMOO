@@ -169,7 +169,9 @@ def GenerateComprehensiveVisualizations(
     # meaning for NSGA-II. Add it only when an optimizer supplied prediction
     # history, leaving the shared default set and NSGA-II output unchanged.
     if not explicit_request and data.gp_prediction_history is not None:
-        plots.add("gp_correlation")
+        predicted = np.asarray(data.gp_prediction_history, dtype=float)
+        if predicted.size and np.any(np.isfinite(predicted)):
+            plots.add("gp_correlation")
 
     pareto_objectives = np.asarray(data.pareto_objectives)
     if len(pareto_objectives) == 0:
