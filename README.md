@@ -71,7 +71,7 @@ For a full walkthrough, plots, and validation metrics, run `python DevelopmentEx
 
 ## Bayesian multi-objective optimization (MOBO)
 
-`MOBOOptimizer` is a drop-in sibling of `NSGAII_Optimizer` for expensive campaigns (roughly **100–500** evaluations, parameter count comfortably **below ~15**). It uses BoTorch `qLogNEHVI` / `qLogNParEGO` on a shared Gaussian-process backend, exposes `ask` / `tell` / `run` for stepwise cluster submission, and feeds the existing plotting utilities without changes.
+`MOBOOptimizer` is a drop-in sibling of `NSGAII_Optimizer` for expensive campaigns (roughly **100–500** evaluations, parameter count comfortably **below ~15**). It uses BoTorch `qLogNEHVI` / `qLogNParEGO` on a shared Gaussian-process backend, exposes `ask` / `tell` / `run` for stepwise cluster submission, and feeds the shared plotting utilities plus a MOBO-specific GP prediction diagnostic.
 
 Shared with NSGA-II: minimization objectives, `g(x) <= 0` feasible constraints, the same `optimization_params` keys, `EvaluateObjectives`, and `ParetoObjectives` / `HypervolumeHistory` / `PopulationHistory` attributes. Differences to keep in mind: `n_generations` means **acquisition batches** (after `n_init`), and the reported Pareto front is the non-dominated set over **all eligible observations** (NSGA-II reports the non-dominated set of the final population only).
 
@@ -93,6 +93,14 @@ results = optimizer.RunOptimization()
 ```
 
 The user's `start_point` is evaluated as the first point of the initial design (as with NSGA-II); pass `include_start_point=False` to opt out.
+
+Completed MOBO runs generate `logs/FinalResults/GPPredictionCorrelation` as
+PDF and PNG by default. It compares the posterior mean recorded when each
+candidate was proposed against the objective value later observed, with one
+panel and Pearson/Spearman correlations per objective. Initial Sobol designs
+are omitted because no GP exists yet, and penalized failures are excluded. Use
+`final_plots="gp_correlation"` to request only this diagnostic, or call
+`TopasMOO.plotting.plot_gp_prediction_correlation` directly.
 
 See [examples/MOBODevelopmentExample](examples/MOBODevelopmentExample/). Prefer **NSGA-II** for larger budgets or higher-dimensional search spaces.
 

@@ -290,7 +290,10 @@ class MOBOOptimizer(TopasMOOBaseClass):
     final population only (by virtue of the genetic optimization).
 
     Also exposes an explicit ``ask`` / ``tell`` / ``run`` API for stepwise
-    evaluation (e.g. cluster batch submission)
+    evaluation (e.g. cluster batch submission). Posterior means recorded when
+    ``ask()`` proposes acquisition candidates are retained in
+    ``gp_prediction_history`` for prospective model diagnostics; initial-design
+    rows use ``NaN`` because no fitted GP exists yet.
 
     :param batch_size: Candidates proposed per acquisition step. Defaults to 1,
         or to ``n_parallel_jobs`` when that is provided.
@@ -479,6 +482,12 @@ class MOBOOptimizer(TopasMOOBaseClass):
 
         self._hv_ref_fixed: np.ndarray | None = None
         self._pending_X: np.ndarray | None = None
+        # Prospective posterior means recorded when ask() proposes a design.
+        # Rows stay aligned with train_Y; the initial design (and manual tells
+        # without a matching ask) use NaN because no pre-evaluation GP
+        # prediction exists for them.
+        self.gp_prediction_history: np.ndarray | None = None
+        self._pending_gp_predictions: np.ndarray | None = None
         self._batch_index = 0
         self._n_batches_target = int(self.n_generations)
         self._mobo_checkpoint_loc = None  # set after dirs exist
@@ -526,6 +535,20 @@ class MOBOOptimizer(TopasMOOBaseClass):
     def _torch_Y_botorch(self, Y_min: np.ndarray):
         torch = self._ensure_botorch()["torch"]
         return torch.as_tensor(self._to_botorch_objectives(Y_min), dtype=torch.double)
+
+    def _posterior_mean_minimization(self, X: np.ndarray, model=None) -> np.ndarray:
+        """Return GP posterior means for ``X`` in TopasMOO minimization space."""
+        bt = self._ensure_botorch()
+        torch = bt["torch"]
+        model = self.model if model is None else model
+        if model is None:
+            raise InvalidParameterError("A fitted GP model is required for prediction.")
+
+        model.eval()
+        with torch.no_grad():
+            mean_max = model.posterior(self._torch_X(X)).mean
+        mean_min = self._from_botorch_objectives(mean_max.detach().cpu().numpy())
+        return np.asarray(mean_min, dtype=float).reshape(-1, self.n_objectives)
 
     def _fall_back_to_inferred_noise(self, reason: str, stacklevel: int = 3) -> None:
         """Abandon supplied observation variances for the rest of the run.
@@ -1120,8 +1143,16 @@ class MOBOOptimizer(TopasMOOBaseClass):
             payload["train_failed"] = np.asarray(self.train_failed, dtype=bool).astype(np.int8)
         if self.train_Yvar is not None:
             payload["train_Yvar"] = np.asarray(self.train_Yvar, dtype=float)
+        if self.gp_prediction_history is not None:
+            payload["gp_prediction_history"] = np.asarray(
+                self.gp_prediction_history, dtype=float
+            )
         if self._pending_X is not None:
             payload["pending_X"] = np.asarray(self._pending_X, dtype=float)
+        if self._pending_gp_predictions is not None:
+            payload["pending_gp_predictions"] = np.asarray(
+                self._pending_gp_predictions, dtype=float
+            )
         if self.ParetoObjectives is not None and len(self.ParetoObjectives):
             payload["ParetoObjectives"] = np.asarray(self.ParetoObjectives, dtype=float)
         if self.ParetoDecisionVars is not None and len(np.atleast_1d(self.ParetoDecisionVars)):
@@ -1279,6 +1310,24 @@ class MOBOOptimizer(TopasMOOBaseClass):
         if self.train_X.size == 0:
             self.train_X = None
             self.train_Y = None
+        if self.train_Y is None:
+            self.gp_prediction_history = None
+        elif "gp_prediction_history" in arrays:
+            restored_predictions = np.asarray(
+                arrays["gp_prediction_history"], dtype=float
+            )
+            if restored_predictions.shape != self.train_Y.shape or np.any(
+                np.isinf(restored_predictions)
+            ):
+                raise InvalidParameterError(
+                    "MOBO checkpoint gp_prediction_history is malformed."
+                )
+            self.gp_prediction_history = restored_predictions
+        else:
+            # Checkpoints written before prospective diagnostics were added do
+            # not have predictions. Preserve observation alignment and simply
+            # omit those historical rows from correlation plots.
+            self.gp_prediction_history = np.full(self.train_Y.shape, np.nan)
         self.HypervolumeHistory = [
             float(v) for v in np.asarray(arrays["HypervolumeHistory"]).reshape(-1)
         ]
@@ -1368,6 +1417,28 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 np.isfinite(self._pending_X)
             ):
                 raise InvalidParameterError("MOBO checkpoint pending_X is malformed.")
+        if "pending_gp_predictions" in arrays:
+            if self._pending_X is None:
+                raise InvalidParameterError(
+                    "MOBO checkpoint has pending GP predictions without pending_X."
+                )
+            restored_pending_predictions = np.asarray(
+                arrays["pending_gp_predictions"], dtype=float
+            )
+            expected_shape = (len(self._pending_X), self.n_objectives)
+            if restored_pending_predictions.shape != expected_shape or np.any(
+                np.isinf(restored_pending_predictions)
+            ):
+                raise InvalidParameterError(
+                    "MOBO checkpoint pending_gp_predictions is malformed."
+                )
+            self._pending_gp_predictions = restored_pending_predictions
+        elif self._pending_X is not None:
+            self._pending_gp_predictions = np.full(
+                (len(self._pending_X), self.n_objectives), np.nan
+            )
+        else:
+            self._pending_gp_predictions = None
 
         if self.train_Y is not None:
             self.PopulationHistory = self._decode_population_history(arrays)
@@ -1479,6 +1550,9 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 X = samples.squeeze(0).detach().cpu().numpy()
             X = self._inject_start_point(np.asarray(X, dtype=float))
             self._pending_X = np.asarray(X, dtype=float)
+            self._pending_gp_predictions = np.full(
+                (len(self._pending_X), self.n_objectives), np.nan
+            )
             try:
                 self.save_checkpoint()
             except (OSError, ValueError) as exc:
@@ -1551,6 +1625,10 @@ class MOBOOptimizer(TopasMOOBaseClass):
         acqf_s = time.perf_counter() - t1
         X = candidates.detach().cpu().numpy()
         self._pending_X = np.asarray(X, dtype=float)
+        self._pending_gp_predictions = self._posterior_mean_minimization(
+            self._pending_X,
+            model=model,
+        )
         try:
             self.save_checkpoint()
         except (OSError, ValueError) as exc:
@@ -1641,6 +1719,16 @@ class MOBOOptimizer(TopasMOOBaseClass):
                     f"observation. Got shape {np.shape(failed)}."
                 )
 
+        batch_predictions = np.full(Y.shape, np.nan)
+        if (
+            self._pending_X is not None
+            and self._pending_gp_predictions is not None
+            and self._pending_X.shape == X.shape
+            and self._pending_gp_predictions.shape == Y.shape
+            and np.array_equal(self._pending_X, X)
+        ):
+            batch_predictions = self._pending_gp_predictions.copy()
+
         supplied_yvar = Yvar is not None
         if Yvar is not None:
             Yvar = np.atleast_2d(np.asarray(Yvar, dtype=float))
@@ -1667,12 +1755,23 @@ class MOBOOptimizer(TopasMOOBaseClass):
             new_train_Y = Y.copy()
             new_train_failed = failed_mask.copy()
             new_train_Yvar = None if self._mc_uncertainty_fallback else Yvar
+            new_gp_prediction_history = batch_predictions
         else:
             if self.train_Y is None:
                 raise InvalidParameterError("Stored train_X/train_Y state is desynchronized.")
             new_train_X = np.vstack([self.train_X, X])
             new_train_Y = np.vstack([self.train_Y, Y])
             new_train_failed = np.concatenate([self._failed_prefix(len(self.train_Y)), failed_mask])
+            prior_predictions = self.gp_prediction_history
+            if prior_predictions is None:
+                prior_predictions = np.full(self.train_Y.shape, np.nan)
+            if prior_predictions.shape != self.train_Y.shape:
+                raise InvalidParameterError(
+                    "Stored GP prediction history is desynchronized from train_Y."
+                )
+            new_gp_prediction_history = np.vstack(
+                [prior_predictions, batch_predictions]
+            )
             if self._mc_uncertainty_fallback:
                 if supplied_yvar and Yvar is not None:
                     warnings.warn(
@@ -1711,6 +1810,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
         self.train_Y = new_train_Y
         self.train_failed = new_train_failed
         self.train_Yvar = new_train_Yvar
+        self.gp_prediction_history = new_gp_prediction_history
         self._feasible_cache = (
             np.concatenate([prior_feasible, new_rows_feasible])
             if prior_feasible is not None and len(prior_feasible) == prior_n
@@ -1726,6 +1826,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
         hv = self._update_hv_history()
         self._batch_index += 1
         self._pending_X = None
+        self._pending_gp_predictions = None
 
         try:
             self.save_checkpoint()

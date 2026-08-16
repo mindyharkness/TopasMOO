@@ -15,6 +15,7 @@ import numpy as np
 from .convergence import plot_objective_convergence, plot_parameter_convergence
 from .correlation import plot_parameter_objective_correlation
 from .decision import plot_decision_heatmap
+from .gp_correlation import plot_gp_prediction_correlation
 from .hypervolume import plot_hypervolume_convergence
 from .parallel import plot_parallel_coordinates
 from .pareto import plot_pareto_front
@@ -58,6 +59,7 @@ ALL_PLOT_KEYS = frozenset({
     "decision_heatmap",
     "petal",
     "correlation",
+    "gp_correlation",
 })
 
 
@@ -105,6 +107,9 @@ class RunData:
     pareto_decision_vars: np.ndarray | None = None
     hypervolume_history: Sequence[float] = field(default_factory=list)
     population_history: Sequence = field(default_factory=list)
+    observed_objectives: np.ndarray | None = None
+    gp_prediction_history: np.ndarray | None = None
+    failed_mask: np.ndarray | None = None
 
     @classmethod
     def from_optimizer(cls, optimizer) -> "RunData":
@@ -117,6 +122,9 @@ class RunData:
             pareto_decision_vars=getattr(optimizer, "ParetoDecisionVars", None),
             hypervolume_history=getattr(optimizer, "HypervolumeHistory", []) or [],
             population_history=getattr(optimizer, "PopulationHistory", []) or [],
+            observed_objectives=getattr(optimizer, "train_Y", None),
+            gp_prediction_history=getattr(optimizer, "gp_prediction_history", None),
+            failed_mask=getattr(optimizer, "train_failed", None),
         )
 
 
@@ -133,7 +141,9 @@ def GenerateComprehensiveVisualizations(
     :param save_dir: Directory where plots will be saved.
     :param final_plots: Plot keys to generate. ``None`` or ``"default"``
         expands to :data:`DEFAULT_FINAL_PLOTS` (Pareto, objective/parameter
-        convergence, and hypervolume when history is available). Pass
+        convergence, and hypervolume when history is available). A MOBO run
+        with prospective prediction history also adds ``"gp_correlation"``.
+        Pass
         ``"all"`` for every key, a single recognized key string such as
         ``"pareto"``, or an iterable of keys. Optional plots are skipped
         when their data is unavailable. Recognized keys:
@@ -147,6 +157,7 @@ def GenerateComprehensiveVisualizations(
         * ``"decision_heatmap"`` — normalized parameter heatmap + boxplots
         * ``"petal"`` — Nightingale petal diagrams (≥3 objectives)
         * ``"correlation"`` — parameter–objective scatter grid
+        * ``"gp_correlation"`` — prospective GP predictions vs. observations
     """
     data = run if isinstance(run, RunData) else RunData.from_optimizer(run)
 
@@ -154,23 +165,30 @@ def GenerateComprehensiveVisualizations(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     plots, explicit_request = _resolve_final_plots(final_plots)
+    # Prospective GP correlation is a high-value default for MOBO but has no
+    # meaning for NSGA-II. Add it only when an optimizer supplied prediction
+    # history, leaving the shared default set and NSGA-II output unchanged.
+    if not explicit_request and data.gp_prediction_history is not None:
+        plots.add("gp_correlation")
 
     pareto_objectives = np.asarray(data.pareto_objectives)
     if len(pareto_objectives) == 0:
-        logger.warning("No Pareto solutions found. Skipping visualizations.")
-        return
+        logger.warning(
+            "No Pareto solutions found. Skipping Pareto-dependent visualizations."
+        )
+    has_pareto = len(pareto_objectives) > 0
 
     n_obj = data.n_objectives
 
     # --- Pareto front --------------------------------------------------------
-    if "pareto" in plots:
+    if "pareto" in plots and has_pareto:
         plot_pareto_front(
             pareto_objectives,
             save_dir / "ParetoFront_Final",
             show_knee_point=True,
         )
 
-    if "parallel" in plots:
+    if "parallel" in plots and has_pareto:
         plot_parallel_coordinates(
             pareto_objectives,
             save_dir / "ParallelCoordinates_Final",
@@ -246,11 +264,17 @@ def GenerateComprehensiveVisualizations(
 
     # --- Petal diagrams ------------------------------------------------------
     if "petal" in plots:
-        plot_petal_diagram_multi(
-            pareto_objectives,
-            save_dir / "PetalDiagrams",
-            title="Pareto Solutions Comparison",
-        )
+        if has_pareto:
+            plot_petal_diagram_multi(
+                pareto_objectives,
+                save_dir / "PetalDiagrams",
+                title="Pareto Solutions Comparison",
+            )
+        else:
+            _warn_if_requested(
+                explicit_request,
+                "No Pareto solutions available; skipping petal diagrams.",
+            )
 
     # --- Parameter–objective correlation -------------------------------------
     if "correlation" in plots:
@@ -265,6 +289,42 @@ def GenerateComprehensiveVisualizations(
         else:
             _warn_if_requested(
                 explicit_request, "ParetoDecisionVars not available; skipping correlation plot."
+            )
+
+    # --- MOBO prospective GP prediction correlation -------------------------
+    if "gp_correlation" in plots:
+        observed = data.observed_objectives
+        predicted = data.gp_prediction_history
+        if observed is not None and predicted is not None:
+            observed = np.asarray(observed, dtype=float)
+            predicted = np.asarray(predicted, dtype=float)
+            valid_mask = None
+            if data.failed_mask is not None:
+                failed = np.asarray(data.failed_mask, dtype=bool).reshape(-1)
+                if len(failed) == len(observed):
+                    valid_mask = ~failed
+            has_predictions = observed.shape == predicted.shape and observed.ndim == 2
+            if has_predictions:
+                finite_pairs = np.isfinite(observed) & np.isfinite(predicted)
+                if valid_mask is not None:
+                    finite_pairs &= valid_mask[:, np.newaxis]
+                has_predictions = bool(np.any(finite_pairs))
+            if has_predictions:
+                plot_gp_prediction_correlation(
+                    observed,
+                    predicted,
+                    save_dir / "GPPredictionCorrelation",
+                    valid_mask=valid_mask,
+                )
+            else:
+                _warn_if_requested(
+                    explicit_request,
+                    "No prospective GP predictions available; skipping GP correlation plot.",
+                )
+        else:
+            _warn_if_requested(
+                explicit_request,
+                "GP prediction history not available; skipping GP correlation plot.",
             )
 
     logger.info("Generated visualizations (%s) in %s", sorted(plots), save_dir)
