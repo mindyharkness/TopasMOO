@@ -46,7 +46,7 @@ from .metrics import (
 
 # Core optimizer classes (TopasProblem is an internal pymoo adapter that stays
 # in TopasMOO.optimizers).
-from .optimizers import NSGAII_Optimizer, TopasMOOBaseClass
+from .optimizers import NSGAII_Optimizer, NSGAIII_Optimizer, TopasMOOBaseClass
 
 # Plotting style entry points (the full plotting API lives in TopasMOO.plotting).
 from .plotting import (

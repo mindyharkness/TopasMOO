@@ -86,6 +86,13 @@ def test_root_package_exposes_publication_variants() -> None:
     }
 
 
+def test_root_package_exports_nsga3_optimizer() -> None:
+    from TopasMOO.optimizers import NSGAIII_Optimizer
+
+    assert "NSGAIII_Optimizer" in TopasMOO.__all__
+    assert TopasMOO.NSGAIII_Optimizer is NSGAIII_Optimizer
+
+
 def test_utilities_module_importable() -> None:
     import TopasMOO.utilities as utilities
 

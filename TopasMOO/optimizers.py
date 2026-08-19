@@ -20,12 +20,12 @@ from pathlib import Path
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.algorithms.moo.nsga3 import NSGA3
-from pymoo.util.ref_dirs import get_reference_directions
 from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.termination import get_termination
+from pymoo.util.ref_dirs import get_reference_directions
 
 from .exceptions import (
     InvalidParameterError,
@@ -1459,8 +1459,10 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
             )
             return None
 
+
 class NSGAIII_Optimizer(TopasMOOBaseClass):
-    """ NSGA-III optimizer class.
+    """NSGA-III optimizer class.
+
     Implements the NSGA-III algorithm for multi-objective optimization from pymoo.
     Basically the same as the NSGA-II optimizer class, but NSGA-III uses reference direction vectors to guide the search.
 
@@ -1482,9 +1484,11 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
         eliminate_duplicates: bool = True,
         **kwds,
     ):
-        """Attach NSGA-II settings and delegate base initialization to the superclass.
+        """Attach NSGA-III settings and delegate base initialization to the superclass.
 
-        :param pop_size: NSGA-II population size.
+        :param pop_size: NSGA-III population size.
+        :param ref_dir_partitions: Number of Das-Dennis reference-direction partitions.
+        :param ref_dir_method: Reference-direction generation method.
         :param seed: RNG seed for the optimization.
         :param verbose: If True, pymoo prints progress on every generation.
         :param eliminate_duplicates: Avoid re-evaluating identical designs (default True).
@@ -1493,17 +1497,22 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
         self.pop_size = pop_size
         self.ref_dir_partitions = ref_dir_partitions
         self.ref_dir_method = ref_dir_method
-        # The dim of the reference direction vectors is the same as the number of objectives
-        self.ref_dir_dim = self.n_objectives
         self.seed = seed
         self.verbose = verbose
         self.eliminate_duplicates = eliminate_duplicates
 
         super().__init__(**kwds)
 
+        # The base constructor validates and initializes the objective count.
+        self.ref_dir_dim = self.n_objectives
+        ref_dirs = get_reference_directions(
+            self.ref_dir_method,
+            self.ref_dir_dim,
+            n_partitions=self.ref_dir_partitions,
+        )
         self.algorithm = NSGA3(
             pop_size=pop_size,
-            ref_dirs=get_reference_directions(self.ref_dir_method, self.ref_dir_dim, self.ref_dir_partitions),
+            ref_dirs=ref_dirs,
             sampling=_StartPointSampling(self.StartingValues),
             crossover=SBX(eta=15, prob=0.9),
             mutation=PM(eta=20),

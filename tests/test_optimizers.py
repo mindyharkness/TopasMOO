@@ -322,6 +322,51 @@ class TestNSGAIIOptimizer:
 
 
 # ============================================================================
+# NSGA-III Optimizer Tests
+# ============================================================================
+
+
+class TestNSGAIIIOptimizer:
+    """Test NSGA-III optimizer initialization and reference directions."""
+
+    def test_initialization_with_two_objectives(self, temp_dir, basic_params, opt_dir):
+        optimizer = tmo.NSGAIII_Optimizer(
+            optimization_params=basic_params,
+            BaseDirectory=temp_dir,
+            SimulationName="test_nsga3_2obj",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+            Overwrite=True,
+            pop_size=4,
+            ref_dir_partitions=3,
+        )
+
+        assert optimizer.n_objectives == 2
+        assert optimizer.ref_dir_dim == 2
+        assert optimizer.algorithm.ref_dirs.shape == (4, 2)
+        np.testing.assert_allclose(optimizer.algorithm.ref_dirs.sum(axis=1), 1.0)
+
+    def test_initialization_with_three_objectives(
+        self, temp_dir, three_objective_params, opt_dir
+    ):
+        optimizer = tmo.NSGAIII_Optimizer(
+            optimization_params=three_objective_params,
+            BaseDirectory=temp_dir,
+            SimulationName="test_nsga3_3obj",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+            Overwrite=True,
+            pop_size=6,
+            ref_dir_partitions=2,
+        )
+
+        assert optimizer.n_objectives == 3
+        assert optimizer.ref_dir_dim == 3
+        assert optimizer.algorithm.ref_dirs.shape == (6, 3)
+        np.testing.assert_allclose(optimizer.algorithm.ref_dirs.sum(axis=1), 1.0)
+
+
+# ============================================================================
 # Parameter Bounds Validation Tests
 # ============================================================================
 
