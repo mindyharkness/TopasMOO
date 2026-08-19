@@ -127,7 +127,7 @@ The set of non-dominated solutions. Each represents a different trade-off betwee
 
 ### Algorithms
 
-#### NSGA-II (Implemented)
+#### NSGA-II
 
 Non-dominated Sorting Genetic Algorithm II - the most popular multi-objective evolutionary algorithm.
 
@@ -142,9 +142,46 @@ Non-dominated Sorting Genetic Algorithm II - the most popular multi-objective ev
 - `pop_size`: Population size (default: 20)
 
 
+#### NSGA-III
+
+Non-dominated Sorting Genetic Algorithm III uses reference directions instead
+of crowding distance to preserve diversity across objective space.
+
+**Features**:
+
+- Reference-direction-based survival selection
+- Better control of objective-space coverage as the number of objectives grows
+- The same constraint handling, failure recovery, checkpointing, and plotting
+  workflow as `NSGAII_Optimizer`
+
+**Parameters**:
+
+- `ref_dir_method`: Reference-direction generation method (default: `"das-dennis"`)
+- `ref_dir_partitions`: Number of Das-Dennis partitions (default: `12`)
+- `pop_size`: Population size. The default `None` uses one individual per
+  generated reference direction. An explicit value must be at least the number
+  of directions.
+
+For Das-Dennis directions, `p` partitions and `M` objectives produce
+`C(M + p - 1, p)` directions. The defaults therefore produce 13 directions for
+two objectives, 91 for three objectives, and 455 for four objectives. Because
+each population member can require an expensive TOPAS run, choose the partition
+count deliberately.
+
+#### Choosing between NSGA-II and NSGA-III
+
+- Start with **NSGA-II** for two-objective and other few-objective problems when
+  crowding-distance diversity is sufficient.
+- Use **NSGA-III** when reference-direction coverage is useful, particularly for
+  three or more objectives.
+- NSGA-III also works with two objectives, but it does not offer
+  an advantage over NSGA-II there.
+
+
 #### Custom Algorithms
 
-Feel free to implement additional multi-objective algorithms from pymoo!
+Additional pymoo algorithms can be integrated by subclassing
+`TopasMOOBaseClass` and implementing `RunOptimization()`.
 
 ## API Reference
 
@@ -213,6 +250,66 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
         (avoids wasting TOPAS runs). Note: as a stochastic GA setting it can
         occasionally alter front spread for a given seed.
     """
+```
+
+### NSGAIII_Optimizer
+
+```python
+class NSGAIII_Optimizer(TopasMOOBaseClass):
+    """Multi-objective optimizer using NSGA-III reference directions.
+
+    Constructor arguments
+    ---------------------
+    optimization_params, BaseDirectory, SimulationName,
+    OptimizationDirectory, ReadMeText, G4dataLocation, TopasLocation,
+    ShellScriptHeader, Overwrite, KeepAllResults, plot_frequency, final_plots,
+    plot_style, intermediate_plot_style, publication_variant, n_constraints,
+    on_evaluation_failure, failure_penalty, resume,
+    dump_optimization_settings
+        Shared with NSGAII_Optimizer; see the preceding API entry for their
+        definitions.
+    pop_size : int | None, default None
+        If None, use the number of generated reference directions. An explicit
+        value must be a positive integer at least as large as that number.
+        ``self.pop_size`` and the underlying pymoo algorithm store the resolved
+        value.
+    ref_dir_partitions : int, default 12
+        Number of partitions used to generate Das-Dennis reference directions.
+        Direction counts grow combinatorially with this value and the objective
+        count, directly affecting the derived population size.
+    ref_dir_method : str, default 'das-dennis'
+        Reference-direction generation method passed to pymoo.
+    seed : int, optional
+        Random seed for the optimization.
+    verbose : bool, default False
+        If True, pymoo prints generation-by-generation progress.
+    eliminate_duplicates : bool, default True
+        If True, NSGA-III resamples to avoid re-evaluating identical designs.
+
+    Raises
+    ------
+    InvalidParameterError
+        If pop_size is neither None nor a positive integer, or if an explicit
+        population is smaller than the generated reference-direction count.
+    """
+```
+
+Example configuration:
+
+```python
+from TopasMOO import NSGAIII_Optimizer
+
+optimizer = NSGAIII_Optimizer(
+    optimization_params=optimization_params,
+    BaseDirectory=BaseDirectory,
+    SimulationName=SimulationName,
+    OptimizationDirectory=OptimizationDirectory,
+    TopasLocation="testing_mode",
+    ref_dir_method="das-dennis",
+    ref_dir_partitions=12,
+    pop_size=None,  # derive from the generated directions
+    seed=42,
+)
 ```
 
 ### Key Methods

@@ -7,6 +7,18 @@
 
 TopasMOO is a Python toolkit for multi-objective optimization of TOPAS Monte Carlo radiation therapy simulations, enabling automated discovery of Pareto-optimal simulation configurations.
 
+## Implemented Algorithms
+
+- **NSGA-II** (`NSGAII_Optimizer`) uses non-dominated sorting and crowding
+  distance and is a strong general default for two or a few objectives.
+- **NSGA-III** (`NSGAIII_Optimizer`) uses reference directions to maintain
+  objective-space coverage and is especially useful as the number of objectives
+  grows.
+
+Both classes share the same TOPAS workflow, constraints, checkpointing, and
+visualization support. See the [algorithm guide and API reference](docsrc/index.md#algorithms)
+for selection guidance and NSGA-III reference-direction configuration.
+
 ## Installation
 
 ```bash
@@ -66,6 +78,11 @@ optimizer = NSGAII_Optimizer(
 results = optimizer.RunOptimization()
 # results.X: decision variables on the Pareto set; results.F: objective values
 ```
+
+To use reference-direction-based selection (reccomended for many-objective optimizations), import `NSGAIII_Optimizer` instead.
+Its default population size is derived from its generated reference directions;
+see the [NSGA-III API reference](docsrc/index.md#nsgaiii_optimizer) before choosing
+the number of partitions for an expensive TOPAS run.
 
 For a full unconstrained walkthrough, plots, and validation metrics, run
 `python DevelopmentExample_main.py` inside `examples/DevelopmentExample/`.
