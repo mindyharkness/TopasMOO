@@ -67,7 +67,10 @@ results = optimizer.RunOptimization()
 # results.X: decision variables on the Pareto set; results.F: objective values
 ```
 
-For a full walkthrough, plots, and validation metrics, run `python DevelopmentExample_main.py` inside `examples/DevelopmentExample/`. For collimator optimization with TOPAS, see [examples/ApertureOptimization](examples/ApertureOptimization/).
+For a full unconstrained walkthrough, plots, and validation metrics, run
+`python DevelopmentExample_main.py` inside `examples/DevelopmentExample/`.
+For collimator optimization with TOPAS, see
+[examples/ApertureOptimization](examples/ApertureOptimization/).
 
 ## Citation
 
