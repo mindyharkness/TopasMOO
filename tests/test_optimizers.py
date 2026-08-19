@@ -365,6 +365,58 @@ class TestNSGAIIIOptimizer:
         assert optimizer.algorithm.ref_dirs.shape == (6, 3)
         np.testing.assert_allclose(optimizer.algorithm.ref_dirs.sum(axis=1), 1.0)
 
+    def test_default_pop_size_is_derived_from_reference_directions(
+        self, temp_dir, basic_params, opt_dir
+    ):
+        optimizer = tmo.NSGAIII_Optimizer(
+            optimization_params=basic_params,
+            BaseDirectory=temp_dir,
+            SimulationName="test_nsga3_derived_pop_size",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+            Overwrite=True,
+        )
+
+        assert len(optimizer.ref_dirs) == 13
+        assert optimizer.pop_size == 13
+        assert optimizer.algorithm.pop_size == 13
+
+    def test_explicit_pop_size_may_exceed_reference_direction_count(
+        self, temp_dir, basic_params, opt_dir
+    ):
+        optimizer = tmo.NSGAIII_Optimizer(
+            optimization_params=basic_params,
+            BaseDirectory=temp_dir,
+            SimulationName="test_nsga3_larger_pop_size",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+            Overwrite=True,
+            pop_size=6,
+            ref_dir_partitions=3,
+        )
+
+        assert len(optimizer.ref_dirs) == 4
+        assert optimizer.pop_size == 6
+        assert optimizer.algorithm.pop_size == 6
+
+    def test_explicit_pop_size_smaller_than_reference_direction_count_fails(
+        self, temp_dir, three_objective_params, opt_dir
+    ):
+        with pytest.raises(
+            InvalidParameterError,
+            match=r"pop_size \(5\).*reference directions \(6\)",
+        ):
+            tmo.NSGAIII_Optimizer(
+                optimization_params=three_objective_params,
+                BaseDirectory=temp_dir,
+                SimulationName="test_nsga3_small_pop_size",
+                OptimizationDirectory=opt_dir,
+                TopasLocation="testing_mode",
+                Overwrite=True,
+                pop_size=5,
+                ref_dir_partitions=2,
+            )
+
 
 # ============================================================================
 # Parameter Bounds Validation Tests
