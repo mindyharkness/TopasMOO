@@ -322,6 +322,176 @@ class TestNSGAIIOptimizer:
 
 
 # ============================================================================
+# NSGA-III Optimizer Tests
+# ============================================================================
+
+
+class TestNSGAIIIOptimizer:
+    """Test NSGA-III optimizer initialization and reference directions."""
+
+    def test_initialization_with_two_objectives(self, temp_dir, basic_params, opt_dir):
+        optimizer = tmo.NSGAIII_Optimizer(
+            optimization_params=basic_params,
+            BaseDirectory=temp_dir,
+            SimulationName="test_nsga3_2obj",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+            Overwrite=True,
+            pop_size=4,
+            ref_dir_partitions=3,
+        )
+
+        assert optimizer.n_objectives == 2
+        assert optimizer.ref_dir_dim == 2
+        assert optimizer.algorithm.ref_dirs.shape == (4, 2)
+        np.testing.assert_allclose(optimizer.algorithm.ref_dirs.sum(axis=1), 1.0)
+
+    def test_initialization_with_three_objectives(
+        self, temp_dir, three_objective_params, opt_dir
+    ):
+        optimizer = tmo.NSGAIII_Optimizer(
+            optimization_params=three_objective_params,
+            BaseDirectory=temp_dir,
+            SimulationName="test_nsga3_3obj",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+            Overwrite=True,
+            pop_size=6,
+            ref_dir_partitions=2,
+        )
+
+        assert optimizer.n_objectives == 3
+        assert optimizer.ref_dir_dim == 3
+        assert optimizer.algorithm.ref_dirs.shape == (6, 3)
+        np.testing.assert_allclose(optimizer.algorithm.ref_dirs.sum(axis=1), 1.0)
+
+    def test_default_pop_size_is_derived_from_reference_directions(
+        self, temp_dir, basic_params, opt_dir
+    ):
+        optimizer = tmo.NSGAIII_Optimizer(
+            optimization_params=basic_params,
+            BaseDirectory=temp_dir,
+            SimulationName="test_nsga3_derived_pop_size",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+            Overwrite=True,
+        )
+
+        assert len(optimizer.ref_dirs) == 13
+        assert optimizer.pop_size == 13
+        assert optimizer.algorithm.pop_size == 13
+
+    def test_explicit_pop_size_may_exceed_reference_direction_count(
+        self, temp_dir, basic_params, opt_dir
+    ):
+        optimizer = tmo.NSGAIII_Optimizer(
+            optimization_params=basic_params,
+            BaseDirectory=temp_dir,
+            SimulationName="test_nsga3_larger_pop_size",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+            Overwrite=True,
+            pop_size=6,
+            ref_dir_partitions=3,
+        )
+
+        assert len(optimizer.ref_dirs) == 4
+        assert optimizer.pop_size == 6
+        assert optimizer.algorithm.pop_size == 6
+
+    def test_explicit_pop_size_smaller_than_reference_direction_count_fails(
+        self, temp_dir, three_objective_params, opt_dir
+    ):
+        with pytest.raises(
+            InvalidParameterError,
+            match=r"pop_size \(5\).*reference directions \(6\)",
+        ):
+            tmo.NSGAIII_Optimizer(
+                optimization_params=three_objective_params,
+                BaseDirectory=temp_dir,
+                SimulationName="test_nsga3_small_pop_size",
+                OptimizationDirectory=opt_dir,
+                TopasLocation="testing_mode",
+                Overwrite=True,
+                pop_size=5,
+                ref_dir_partitions=2,
+            )
+
+
+# ============================================================================
+# Optimization History Tests
+# ============================================================================
+
+
+class TestOptimizationHistory:
+    """Test shared history normalization used by NSGA-II and NSGA-III."""
+
+    @staticmethod
+    def _make_optimizer(optimizer_class, temp_dir, basic_params, opt_dir):
+        algorithm_options = {"pop_size": 4}
+        if optimizer_class is tmo.NSGAIII_Optimizer:
+            algorithm_options["ref_dir_partitions"] = 3
+        return optimizer_class(
+            optimization_params=basic_params,
+            BaseDirectory=temp_dir,
+            SimulationName=f"history_{optimizer_class.__name__}",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+            Overwrite=True,
+            **algorithm_options,
+        )
+
+    @pytest.mark.parametrize(
+        "optimizer_class", [tmo.NSGAII_Optimizer, tmo.NSGAIII_Optimizer]
+    )
+    @pytest.mark.parametrize("stack_generations", [False, True])
+    def test_numpy_history_is_normalized(
+        self,
+        optimizer_class,
+        stack_generations,
+        temp_dir,
+        basic_params,
+        opt_dir,
+    ):
+        optimizer = self._make_optimizer(
+            optimizer_class, temp_dir, basic_params, opt_dir
+        )
+        first = np.array([[1.0, 4.0], [2.0, 3.0], [3.0, 2.0], [4.0, 1.0]])
+        populations = np.stack((first, first * 0.9)) if stack_generations else first
+
+        optimizer._extract_optimization_history(populations)
+
+        expected_generations = 2 if stack_generations else 1
+        assert len(optimizer.PopulationHistory) == expected_generations
+        assert len(optimizer.HypervolumeHistory) == expected_generations
+        np.testing.assert_array_equal(optimizer.PopulationHistory[0][1], first)
+
+    @pytest.mark.parametrize(
+        ("populations", "message"),
+        [
+            (np.ones(4), "array shape"),
+            (np.ones((4, 3)), "2 objective columns"),
+            (np.ones((3, 2)), "4 rows"),
+            (
+                np.array(
+                    [[np.nan, 1.0], [2.0, 3.0], [3.0, 2.0], [4.0, 1.0]]
+                ),
+                "non-finite",
+            ),
+        ],
+    )
+    def test_malformed_history_raises_clear_error(
+        self, populations, message, temp_dir, basic_params, opt_dir
+    ):
+        optimizer = self._make_optimizer(
+            tmo.NSGAII_Optimizer, temp_dir, basic_params, opt_dir
+        )
+
+        with pytest.raises(ValueError, match=message):
+            optimizer._extract_optimization_history(populations)
+
+
+# ============================================================================
 # Parameter Bounds Validation Tests
 # ============================================================================
 

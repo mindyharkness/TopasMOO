@@ -2,10 +2,10 @@
 TopasMOO: Multi-Objective Optimization for TOPAS Monte Carlo Simulations
 
 TopasMOO extends the TopasOpt framework to handle multiple competing objectives
-using pymoo algorithms, particularly NSGA-II.
+using pymoo algorithms, particularly NSGA-II and NSGA-III.
 
 Each optimization must import:
-``NSGAII_Optimizer``
+``NSGAII_Optimizer`` or ``NSGAIII_Optimizer``
     The optimizer you construct and run (``.RunOptimization()``). This is the
     main entry point for most users.
 ``TopasMOOBaseClass``
@@ -23,7 +23,7 @@ __author__ = "Mindy Harkness"
 try:
     __version__ = importlib.metadata.version("topasmoo")
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.2.0-dev"
+    __version__ = "0.3.0-dev"
 
 # Exceptions
 from .exceptions import (
@@ -46,7 +46,7 @@ from .metrics import (
 
 # Core optimizer classes (TopasProblem is an internal pymoo adapter that stays
 # in TopasMOO.optimizers).
-from .optimizers import NSGAII_Optimizer, TopasMOOBaseClass
+from .optimizers import NSGAII_Optimizer, NSGAIII_Optimizer, TopasMOOBaseClass
 
 # Plotting style entry points (the full plotting API lives in TopasMOO.plotting).
 from .plotting import (
@@ -59,6 +59,7 @@ from .plotting import (
 __all__ = [
     # Core classes
     "NSGAII_Optimizer",
+    "NSGAIII_Optimizer",
     "TopasMOOBaseClass",
     # Exceptions
     "TopasMOOError",
