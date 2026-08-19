@@ -815,6 +815,92 @@ class TopasMOOBaseClass(ABC):
                     f"Failed to delete {file_path} from results folder. Reason: {e}. continuing..."
                 )
 
+    def _normalize_history_populations(self, populations):
+        """Return validated per-generation objective matrices.
+
+        Accepts a single ``(pop_size, n_objectives)`` NumPy matrix, a stacked
+        ``(n_generations, pop_size, n_objectives)`` NumPy array, or any iterable
+        of two-dimensional population matrices. If ``populations`` is ``None``,
+        pymoo's saved result history is used when available.
+
+        Empty histories are logged and returned as an empty list. Malformed,
+        non-numeric, or non-finite population data raises ``ValueError`` with
+        the generation index and expected shape.
+        """
+        if populations is None:
+            result = getattr(self, "res", None)
+            result_history = getattr(result, "history", None)
+            if result_history is None:
+                logger.warning("No history available in optimization results")
+                return []
+            populations = [algo.pop.get("F") for algo in result_history]
+        elif isinstance(populations, np.ndarray):
+            if populations.ndim == 2:
+                populations = [populations]
+            elif populations.ndim == 3:
+                populations = list(populations)
+            else:
+                raise ValueError(
+                    "populations must have shape (pop_size, n_objectives) or "
+                    "(n_generations, pop_size, n_objectives); "
+                    f"got array shape {populations.shape}."
+                )
+        else:
+            try:
+                populations = list(populations)
+            except TypeError as exc:
+                raise ValueError(
+                    "populations must be a two- or three-dimensional NumPy "
+                    "array or an iterable of population matrices."
+                ) from exc
+
+        if len(populations) == 0:
+            logger.warning("No history available in optimization results")
+            return []
+
+        expected_pop_size = getattr(self, "pop_size", None)
+        normalized = []
+        for gen_idx, population in enumerate(populations):
+            try:
+                matrix = np.asarray(population, dtype=float)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Population for generation {gen_idx} must contain numeric "
+                    "objective values."
+                ) from exc
+
+            if matrix.ndim != 2:
+                raise ValueError(
+                    f"Population for generation {gen_idx} must be a "
+                    "two-dimensional objective matrix; got shape {matrix.shape}."
+                )
+            if matrix.shape[0] == 0:
+                raise ValueError(
+                    f"Population for generation {gen_idx} must not be empty."
+                )
+            if matrix.shape[1] != self.n_objectives:
+                raise ValueError(
+                    f"Population for generation {gen_idx} must have "
+                    f"{self.n_objectives} objective columns; got shape {matrix.shape}."
+                )
+            if (
+                isinstance(expected_pop_size, numbers.Integral)
+                and matrix.shape[0] != expected_pop_size
+            ):
+                raise ValueError(
+                    f"Population for generation {gen_idx} must have "
+                    f"{expected_pop_size} rows to match pop_size; "
+                    f"got shape {matrix.shape}."
+                )
+            if not np.isfinite(matrix).all():
+                raise ValueError(
+                    f"Population for generation {gen_idx} contains non-finite "
+                    "objective values."
+                )
+            normalized.append(matrix.copy())
+
+        return normalized
+
     @abstractmethod
     def RunOptimization(self):
         """Run the optimization; must be implemented by subclasses."""
@@ -1364,11 +1450,10 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
     def _extract_optimization_history(self, populations=None):
         """Fill ``HypervolumeHistory`` and ``PopulationHistory`` from per-generation data.
 
-        :param populations: Optional list of per-generation objective matrices
-            (each ``(pop_size, n_obj)``), as collected by the ask/tell loop.
-            The built-in NSGA-II path always passes this explicitly. If
-            ``None``, it falls back to ``self.res.history`` when populated;
-            otherwise no history is recorded.
+        :param populations: Optional single objective matrix, three-dimensional
+            generation stack, or iterable of per-generation objective matrices
+            (each ``(pop_size, n_obj)``). The built-in NSGA-II path passes a
+            list. If ``None``, falls back to ``self.res.history`` when populated.
 
         The hypervolume reference point is derived from the objective values
         actually observed across all generations (per-objective nadir plus a 10%
@@ -1377,20 +1462,16 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
         Logs a warning and records ``0.0`` for any generation whose hypervolume
         cannot be computed.
         """
-        if not populations:
-            if hasattr(self.res, "history") and self.res.history:
-                populations = [algo.pop.get("F") for algo in self.res.history]
-            else:
-                logger.warning("No history available in optimization results")
-                return
+        populations = self._normalize_history_populations(populations)
+        if len(populations) == 0:
+            return
 
         from pymoo.indicators.hv import HV
 
         # Collect every generation's population objectives once.
         self.PopulationHistory = [
-            (gen_idx, np.asarray(pop).copy()) for gen_idx, pop in enumerate(populations)
+            (gen_idx, pop.copy()) for gen_idx, pop in enumerate(populations)
         ]
-        populations = [np.asarray(pop) for pop in populations]
 
         # Reference point: worse (i.e. larger, for minimization) than every
         # observed objective value, with a margin proportional to the observed
@@ -1631,11 +1712,10 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
     def _extract_optimization_history(self, populations=None):
         """Fill ``HypervolumeHistory`` and ``PopulationHistory`` from per-generation data.
 
-        :param populations: Optional list of per-generation objective matrices
-            (each ``(pop_size, n_obj)``), as collected by the ask/tell loop.
-            The built-in NSGA-III path always passes this explicitly. If
-            ``None``, it falls back to ``self.res.history`` when populated;
-            otherwise no history is recorded.
+        :param populations: Optional single objective matrix, three-dimensional
+            generation stack, or iterable of per-generation objective matrices
+            (each ``(pop_size, n_obj)``). The built-in NSGA-III path passes a
+            list. If ``None``, falls back to ``self.res.history`` when populated.
 
         The hypervolume reference point is derived from the objective values
         actually observed across all generations (per-objective nadir plus a 10%
@@ -1644,20 +1724,16 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
         Logs a warning and records ``0.0`` for any generation whose hypervolume
         cannot be computed.
         """
-        if not populations:
-            if hasattr(self.res, "history") and self.res.history:
-                populations = [algo.pop.get("F") for algo in self.res.history]
-            else:
-                logger.warning("No history available in optimization results")
-                return
+        populations = self._normalize_history_populations(populations)
+        if len(populations) == 0:
+            return
 
         from pymoo.indicators.hv import HV
 
         # Collect every generation's population objectives once.
         self.PopulationHistory = [
-            (gen_idx, np.asarray(pop).copy()) for gen_idx, pop in enumerate(populations)
+            (gen_idx, pop.copy()) for gen_idx, pop in enumerate(populations)
         ]
-        populations = [np.asarray(pop) for pop in populations]
 
         # Reference point: worse (i.e. larger, for minimization) than every
         # observed objective value, with a margin proportional to the observed
