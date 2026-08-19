@@ -140,7 +140,6 @@ Non-dominated Sorting Genetic Algorithm II - the most popular multi-objective ev
 **Parameters**:
 
 - `pop_size`: Population size (default: 20)
-- `custom_algorithm`: Optional custom pymoo algorithm
 
 
 #### Custom Algorithms
@@ -205,8 +204,6 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
         NSGA-II population size. The final front size and objective-space
         coverage are bounded by pop_size; resolving a real front well usually
         needs a larger population.
-    custom_algorithm : pymoo.Algorithm, optional
-        Custom pymoo algorithm; falls back to NSGA-II if None.
     seed : int, optional
         Random seed for the optimization.
     verbose : bool, default False

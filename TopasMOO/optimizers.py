@@ -19,6 +19,8 @@ from pathlib import Path
 
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
+from pymoo.algorithms.moo.nsga3 import NSGA3
+from pymoo.util.ref_dirs import get_reference_directions
 from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
@@ -92,8 +94,7 @@ class TopasMOOBaseClass(ABC):
             (the number of NSGA-II generations to run; the legacy alias
             ``n_iterations`` is still accepted). ``start_point`` is injected
             into the initial NSGA-II population as one individual (the rest
-            are sampled randomly); it is ignored when a ``custom_algorithm``
-            supplies its own sampling or when resuming from a checkpoint.
+            are sampled randomly); it is ignored when resuming from a checkpoint.
         :param BaseDirectory: Existing root directory for simulation outputs.
         :param SimulationName: Subfolder name for this optimization run.
         :param OptimizationDirectory: Directory containing ``GenerateTopasScripts.py`` and
@@ -1238,8 +1239,6 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
     more TOPAS runs per generation).
 
     :param pop_size: Individuals per generation (default 20).
-    :param custom_algorithm: Optional pymoo ``Algorithm``; if omitted, builds ``NSGA2``
-        with SBX crossover and PM mutation.
     :param seed: Random seed for reproducibility.
     :param verbose: If True, pymoo prints generation-by-generation progress to stdout.
         Defaults to False (library-friendly).
@@ -1252,7 +1251,6 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
     def __init__(
         self,
         pop_size: int = 20,
-        custom_algorithm=None,
         seed: int | None = None,
         verbose: bool = False,
         eliminate_duplicates: bool = True,
@@ -1261,31 +1259,25 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
         """Attach NSGA-II settings and delegate base initialization to the superclass.
 
         :param pop_size: NSGA-II population size.
-        :param custom_algorithm: User-supplied pymoo algorithm, or None for default NSGA2.
         :param seed: RNG seed for the optimization.
         :param verbose: If True, pymoo prints progress on every generation.
         :param eliminate_duplicates: Avoid re-evaluating identical designs (default True).
         :param **kwds: Base-class constructor arguments (directories, params, etc.).
         """
         self.pop_size = pop_size
-        self.custom_algorithm = custom_algorithm
         self.seed = seed
         self.verbose = verbose
         self.eliminate_duplicates = eliminate_duplicates
 
         super().__init__(**kwds)
 
-        if custom_algorithm is None:
-            self.algorithm = NSGA2(
-                pop_size=pop_size,
-                sampling=_StartPointSampling(self.StartingValues),
-                crossover=SBX(eta=15, prob=0.9),
-                mutation=PM(eta=20),
-                eliminate_duplicates=eliminate_duplicates,
-            )
-        else:
-            self.algorithm = custom_algorithm
-            logger.info("Using custom algorithm provided by user")
+        self.algorithm = NSGA2(
+            pop_size=pop_size,
+            sampling=_StartPointSampling(self.StartingValues),
+            crossover=SBX(eta=15, prob=0.9),
+            mutation=PM(eta=20),
+            eliminate_duplicates=eliminate_duplicates,
+        )
 
     def RunOptimization(self):
         """Set up folders, run NSGA-II to the generation limit, then finalize outputs.
@@ -1341,7 +1333,6 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
         self.res = algorithm.result()
 
         self._extract_optimization_history(gen_populations)
-
         # Official final front: the non-dominated set of the optimizer's final
         # population (``res.F`` / ``res.X``). Intermediate monitoring during the
         # run uses the ND set over *all evaluations* and writes
@@ -1376,9 +1367,8 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
         :param populations: Optional list of per-generation objective matrices
             (each ``(pop_size, n_obj)``), as collected by the ask/tell loop.
             The built-in NSGA-II path always passes this explicitly. If
-            ``None``, it falls back to ``self.res.history`` *when populated*
-            -- only the case for a custom algorithm run with pymoo's
-            ``save_history=True``; otherwise no history is recorded.
+            ``None``, it falls back to ``self.res.history`` when populated;
+            otherwise no history is recorded.
 
         The hypervolume reference point is derived from the objective values
         actually observed across all generations (per-objective nadir plus a 10%
@@ -1449,6 +1439,238 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
 
     def _load_state_checkpoint(self, problem):
         """Return a resumed NSGA-II algorithm from ``Checkpoint.pkl``, or ``None``.
+
+        Only attempts to load when ``resume=True`` and a checkpoint exists. On
+        any failure it returns ``None`` so the GA restarts from scratch -- the
+        warm evaluation cache still prevents completed simulations from re-running.
+        """
+        if not (self.resume and os.path.isfile(self._checkpoint_loc)):
+            return None
+        try:
+            with open(self._checkpoint_loc, "rb") as f:
+                algorithm = pickle.load(f)
+            algorithm.problem = problem
+            return algorithm
+        except Exception as e:
+            logger.warning(
+                "Could not load checkpoint (%s); restarting the GA "
+                "(cached evaluations are still reused).",
+                e,
+            )
+            return None
+
+class NSGAIII_Optimizer(TopasMOOBaseClass):
+    """ NSGA-III optimizer class.
+    Implements the NSGA-III algorithm for multi-objective optimization from pymoo.
+    Basically the same as the NSGA-II optimizer class, but NSGA-III uses reference direction vectors to guide the search.
+
+    :param pop_size: NSGA-III population size.
+    :param ref_dir_partitions: Number of partitions for the reference direction vectors.
+    :param ref_dir_method: Method for generating the reference direction vectors. Default is "das-dennis", which is a good default for most problems.
+    :param seed: RNG seed for the optimization.
+    :param verbose: If True, pymoo prints progress on every generation.
+    :param eliminate_duplicates: Avoid re-evaluating identical designs (default True).
+    :param **kwds: Base-class constructor arguments (directories, params, etc.).
+    """
+    def __init__(
+        self,
+        pop_size: int = 20,
+        ref_dir_partitions: int = 12,
+        ref_dir_method: str = "das-dennis",
+        seed: int | None = None,
+        verbose: bool = False,
+        eliminate_duplicates: bool = True,
+        **kwds,
+    ):
+        """Attach NSGA-II settings and delegate base initialization to the superclass.
+
+        :param pop_size: NSGA-II population size.
+        :param seed: RNG seed for the optimization.
+        :param verbose: If True, pymoo prints progress on every generation.
+        :param eliminate_duplicates: Avoid re-evaluating identical designs (default True).
+        :param **kwds: Base-class constructor arguments (directories, params, etc.).
+        """
+        self.pop_size = pop_size
+        self.ref_dir_partitions = ref_dir_partitions
+        self.ref_dir_method = ref_dir_method
+        # The dim of the reference direction vectors is the same as the number of objectives
+        self.ref_dir_dim = self.n_objectives
+        self.seed = seed
+        self.verbose = verbose
+        self.eliminate_duplicates = eliminate_duplicates
+
+        super().__init__(**kwds)
+
+        self.algorithm = NSGA3(
+            pop_size=pop_size,
+            ref_dirs=get_reference_directions(self.ref_dir_method, self.ref_dir_dim, self.ref_dir_partitions),
+            sampling=_StartPointSampling(self.StartingValues),
+            crossover=SBX(eta=15, prob=0.9),
+            mutation=PM(eta=20),
+            eliminate_duplicates=eliminate_duplicates,
+        )
+
+    def RunOptimization(self):
+        """Set up folders, run NSGA-III to the generation limit, then finalize outputs.
+
+        Driven by pymoo's ask/tell loop so the algorithm state can be
+        checkpointed after every generation (``logs/Checkpoint.pkl``). Together
+        with the evaluation cache (``logs/EvalCache.jsonl``) and
+        ``logs/RunState.json`` (evaluation counter), this lets a crashed or
+        interrupted run be resumed via ``resume=True`` without repeating
+        completed TOPAS simulations or resetting iteration numbering.
+        (A resumed run's hypervolume history covers only post-resume
+        generations; the official final Pareto front is always ``res.F``.)
+
+        :returns: The pymoo ``Result`` object (also stored as ``self.res``).
+            ``res.F`` / ``res.X`` are the official final Pareto set and match
+            ``ParetoFront.txt`` and end-of-run figures. Mid-run monitoring uses
+            the ND set over all evaluations so far (``ParetoFront_Running.txt``).
+        """
+        self.SetUpDirectoryStructure()
+
+        # Create pymoo problem
+        problem = TopasProblem(self)
+
+        # Set up termination criterion
+        termination = get_termination("n_gen", self.n_generations)
+
+        algorithm = self._load_state_checkpoint(problem)
+        if algorithm is None:
+            algorithm = self.algorithm
+            algorithm.setup(
+                problem,
+                termination=termination,
+                seed=self.seed,
+                verbose=self.verbose,
+            )
+            logger.info(
+                "Starting NSGA-III optimization with %d individuals for %d generations",
+                self.pop_size,
+                self.n_generations,
+            )
+        else:
+            logger.info(
+                "Resuming NSGA-III from checkpoint (generation %s)", algorithm.n_gen
+            )
+
+        # Ask/tell loop: one generation per iteration, checkpointed each step.
+        gen_populations = []
+        while algorithm.has_next():
+            algorithm.next()
+            gen_populations.append(np.asarray(algorithm.pop.get("F")).copy())
+            self._save_state_checkpoint(algorithm)
+
+        self.res = algorithm.result()
+
+        self._extract_optimization_history(gen_populations)
+
+        # Official final front: the non-dominated set of the optimizer's final
+        # population (``res.F`` / ``res.X``). Intermediate monitoring during the
+        # run uses the ND set over *all evaluations* and writes
+        # ``ParetoFront_Running.txt``; only this end-of-run path writes
+        # ``ParetoFront.txt``, so the two definitions never share a file.
+        self.ParetoObjectives = np.atleast_2d(np.asarray(self.res.F, dtype=float))
+        self.ParetoDecisionVars = np.atleast_2d(np.asarray(self.res.X, dtype=float))
+        LogParetoFrontToFile(
+            self._ParetoLogFileLoc,
+            self.ParetoObjectives,
+            self.ParameterNames,
+            self.n_objectives,
+            ParetoDecisionVars=self.ParetoDecisionVars,
+        )
+        self._write_final_log_entry()
+        self._persist_run_state()
+
+        logger.info(
+            "Optimization complete. Found %d solutions in the Pareto front.",
+            len(self.ParetoObjectives),
+        )
+
+        # Generate final visualizations
+        self._plot_convergence()
+        self.GenerateFinalVisualizations()
+
+        return self.res
+
+    def _extract_optimization_history(self, populations=None):
+        """Fill ``HypervolumeHistory`` and ``PopulationHistory`` from per-generation data.
+
+        :param populations: Optional list of per-generation objective matrices
+            (each ``(pop_size, n_obj)``), as collected by the ask/tell loop.
+            The built-in NSGA-III path always passes this explicitly. If
+            ``None``, it falls back to ``self.res.history`` when populated;
+            otherwise no history is recorded.
+
+        The hypervolume reference point is derived from the objective values
+        actually observed across all generations (per-objective nadir plus a 10%
+        margin of the observed range), so the indicator is meaningful regardless
+        of the objectives' scale or sign rather than assuming values in ``[0, 1]``.
+        Logs a warning and records ``0.0`` for any generation whose hypervolume
+        cannot be computed.
+        """
+        if not populations:
+            if hasattr(self.res, "history") and self.res.history:
+                populations = [algo.pop.get("F") for algo in self.res.history]
+            else:
+                logger.warning("No history available in optimization results")
+                return
+
+        from pymoo.indicators.hv import HV
+
+        # Collect every generation's population objectives once.
+        self.PopulationHistory = [
+            (gen_idx, np.asarray(pop).copy()) for gen_idx, pop in enumerate(populations)
+        ]
+        populations = [np.asarray(pop) for pop in populations]
+
+        # Reference point: worse (i.e. larger, for minimization) than every
+        # observed objective value, with a margin proportional to the observed
+        # range. Using a single fixed reference keeps the per-generation
+        # hypervolumes comparable across the run.
+        all_objectives = np.vstack(populations)
+        ideal = all_objectives.min(axis=0)
+        nadir = all_objectives.max(axis=0)
+        span = nadir - ideal
+        span[span == 0] = 1.0
+        ref_point = nadir + 0.1 * span
+        hv_indicator = HV(ref_point=ref_point)
+
+        self.HypervolumeHistory = []
+        for gen_idx, pop_objectives in enumerate(populations):
+            try:
+                self.HypervolumeHistory.append(hv_indicator(pop_objectives))
+            except Exception as e:
+                logger.warning(
+                    f"Could not compute hypervolume for generation {gen_idx}: {e}"
+                )
+                self.HypervolumeHistory.append(0.0)
+
+        logger.info(f"Extracted history for {len(self.HypervolumeHistory)} generations")
+        if self.HypervolumeHistory:
+            logger.info(f"Final hypervolume: {self.HypervolumeHistory[-1]:.6f}")
+
+    def _save_state_checkpoint(self, algorithm):
+        """Pickle the NSGA-III algorithm state for exact resume (best-effort).
+
+        The problem and the (potentially large) history are detached before
+        pickling -- the problem holds the user-imported modules and is re-attached
+        on resume, and the full (x, F) record lives in the evaluation cache. A
+        failure here is logged and ignored: the evaluation cache alone is enough
+        to resume without repeating completed simulations.
+        """
+        problem, history = algorithm.problem, algorithm.history
+        algorithm.problem, algorithm.history = None, []
+        try:
+            with open(self._checkpoint_loc, "wb") as f:
+                pickle.dump(algorithm, f)
+        except Exception as e:
+            logger.warning("Could not write algorithm checkpoint: %s", e)
+        finally:
+            algorithm.problem, algorithm.history = problem, history
+
+    def _load_state_checkpoint(self, problem):
+        """Return a resumed NSGA-III algorithm from ``Checkpoint.pkl``, or ``None``.
 
         Only attempts to load when ``resume=True`` and a checkpoint exists. On
         any failure it returns ``None`` so the GA restarts from scratch -- the
