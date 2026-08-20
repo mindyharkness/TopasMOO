@@ -94,7 +94,8 @@ plot_gp_prediction_correlation(
 
 ## Default final suite
 
-`NSGAII_Optimizer.RunOptimization()` writes figures under
+`NSGAII_Optimizer.RunOptimization()` and `NSGAIII_Optimizer.RunOptimization()`
+write figures under
 `{BaseDirectory}/{SimulationName}/logs/FinalResults/` using
 `GenerateComprehensiveVisualizations`.
 
