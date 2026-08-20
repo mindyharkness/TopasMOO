@@ -9,7 +9,8 @@ Each optimization must import:
     The optimizer you construct and run (``.RunOptimization()``). This is the
     main entry point for most users.
 ``TopasMOOBaseClass``
-    Base class to subclass if you want to drive a different pymoo algorithm.
+    Shared base for both optimizers; subclass it to drive a different algorithm
+    while reusing evaluation, logging, and plotting.
 
 The full visualization toolbox (Pareto fronts, petal diagrams, convergence plots,
 etc.) lives in the TopasMOO.plotting subpackage; only the style entry
@@ -42,6 +43,7 @@ from .metrics import (
     calculate_crowding_distance,
     calculate_dominance_rank,
     calculate_knee_point,
+    hypervolume_reference_point,
 )
 
 # Core optimizer classes (TopasProblem is an internal pymoo adapter that stays
@@ -71,6 +73,7 @@ __all__ = [
     "calculate_knee_point",
     "calculate_crowding_distance",
     "calculate_dominance_rank",
+    "hypervolume_reference_point",
     # IO
     "ReadInMultiObjectiveLogFile",
     "LogParetoFrontToFile",
@@ -80,3 +83,4 @@ __all__ = [
     "publication_style",
     "save_publication_figure",
 ]
+

@@ -12,9 +12,7 @@ Tests cover:
 """
 import builtins
 import os
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -70,18 +68,7 @@ def three_objective_params():
     }
 
 
-@pytest.fixture
-def temp_dir():
-    """Create and cleanup temporary directory"""
-    tmpdir = tempfile.mkdtemp()
-    yield tmpdir
-    shutil.rmtree(tmpdir, ignore_errors=True)
-
-
-@pytest.fixture
-def opt_dir():
-    """Path to DevelopmentExample with GenerateTopasScripts/TopasObjectiveFunction."""
-    return Path(__file__).parent.parent / "examples" / "DevelopmentExample"
+# temp_dir / opt_dir come from tests/conftest.py.
 
 
 # ============================================================================
@@ -944,6 +931,19 @@ class TestIterationTracking:
 
         assert optimizer.n_generations == 100
 
+    def test_missing_n_generations_raises_invalid_parameter(self, temp_dir, basic_params, opt_dir):
+        """Shared algorithm-step key is required for NSGA-II and MOBO."""
+        del basic_params["n_iterations"]
+        with pytest.raises(InvalidParameterError, match="n_generations"):
+            tmo.NSGAII_Optimizer(
+                optimization_params=basic_params,
+                BaseDirectory=temp_dir,
+                SimulationName="test_missing_gens",
+                OptimizationDirectory=opt_dir,
+                TopasLocation="testing_mode",
+                Overwrite=True,
+            )
+
 
 # ============================================================================
 # Logging Tests
@@ -1034,3 +1034,4 @@ class TestDataStorage:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

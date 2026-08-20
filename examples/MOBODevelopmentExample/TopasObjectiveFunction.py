@@ -1,8 +1,8 @@
-"""
-Evaluate the ZDT1 benchmark objectives for a decision vector. 
+"""ZDT1 objectives for the MOBO development example (testing_mode).
+
 Reference:
-        Zitzler, E., Deb, K., & Thiele, L. (2000). Comparison of multiobjective
-        evolutionary algorithms: Empirical results.
+    Zitzler, E., Deb, K., & Thiele, L. (2000). Comparison of multiobjective
+    evolutionary algorithms: Empirical results.
 """
 
 import os
@@ -47,7 +47,7 @@ def TopasObjectiveFunction(ResultsLocation, iteration):
     :returns: List ``[f1, f2]`` of the two ZDT1 objective values.
     """
     script_dir = Path(ResultsLocation).parent / "TopasScripts"
-    script_file = script_dir / f"DevelopmentExample_itt_{iteration}.tps"
+    script_file = script_dir / f"MOBODevelopmentExample_itt_{iteration}.tps"
     x = []
     if os.path.exists(script_file):
         with open(script_file) as f:
@@ -64,4 +64,3 @@ def TopasObjectiveFunction(ResultsLocation, iteration):
         # ZDT1 needs at least two variables for g to be defined.
         x = [0.5] * 5
     return ZDT1(np.array(x))
-

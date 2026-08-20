@@ -1,8 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-Multi-objective optimization drivers for TopasMOO (pymoo integration).
+Multi-objective optimization drivers for TopasMOO.
 
-Extends the TopasOpt workflow to multiple objectives and Pareto-front tracking.
+Houses ``TopasMOOBaseClass`` (shared by ``NSGAII_Optimizer`` and
+``MOBOOptimizer``) and the pymoo NSGA-II driver. Extends the TopasOpt workflow
+to vector-valued objectives and Pareto-front tracking.
+
+Shared conventions (minimization objectives, ``g(x) <= 0`` feasible constraints,
+``optimization_params`` keys, ``EvaluateObjectives``, logging, and plotting
+attributes) live on the base class so both algorithms speak the same language.
 """
 import json
 import logging
@@ -34,7 +40,7 @@ from .exceptions import (
     TopasExecutionError,
 )
 from .io import LogParetoFrontToFile, ReadInMultiObjectiveLogFile
-from .metrics import calculate_dominance_rank
+from .metrics import calculate_dominance_rank, hypervolume_reference_point
 from .plotting import GenerateComprehensiveVisualizations
 from .plotting.convergence import plot_objective_convergence, plot_parameter_convergence
 from .plotting.pareto import plot_pareto_front
@@ -52,15 +58,19 @@ class TopasMOOBaseClass(ABC):
     """Base class for multi-objective TOPAS Monte Carlo optimization.
 
     Provides logging, objective evaluation, script generation, Pareto tracking,
-    and shared directory setup for pymoo-backed optimizers.
+    and shared directory setup for concrete optimizers
+    (``NSGAII_Optimizer``, ``MOBOOptimizer``).
 
     Compared to TopasOpt:
-        - Vector-valued objectives instead of a single fitness.
+        - Vector-valued objectives instead of a single fitness (always
+          **minimized**; flip maximize-style physics quantities in the user
+          objective before returning them).
         - Pareto front tracking instead of one best solution.
-        - pymoo as the optimization driver.
-        - Multi-objective plotting helpers.
+        - Inequality constraints use the pymoo convention ``g(x) <= 0`` feasible.
+        - Multi-objective plotting helpers shared across algorithms.
 
-    Do not instantiate this class directly; subclass it (e.g. ``NSGAII_Optimizer``).
+    Do not instantiate this class directly; subclass it
+    (e.g. ``NSGAII_Optimizer`` or ``MOBOOptimizer``).
     Constructor parameters are documented on ``__init__``.
     """
 
@@ -106,7 +116,7 @@ class TopasMOOBaseClass(ABC):
         :param Overwrite: If True, clear a non-empty simulation folder without prompting.
         :param KeepAllResults: If False, clear ``Results`` before each evaluation.
         :param plot_frequency: Number of objective *evaluations* between intermediate
-            convergence plots (not generations); final plots always run at the end.
+            convergence plots (not generations/batches); final plots always run at the end.
             Must be a positive integer.
         :param final_plots: End-of-run plot selection: ``None`` / ``"default"``
             for the lean default set
@@ -125,7 +135,7 @@ class TopasMOOBaseClass(ABC):
             each looks like.
             Ignored when both styles are ``"fast"``.
         :param n_constraints: Number of inequality constraints (``g(x) <= 0`` is
-            feasible, pymoo convention). When ``> 0`` the user
+            feasible, pymoo / TopasMOO convention). When ``> 0`` the user
             ``TopasObjectiveFunction`` must return ``n_objectives +
             n_constraints`` values: the objectives first, then the
             constraint values. Default ``0`` (unconstrained).
@@ -136,6 +146,9 @@ class TopasMOOBaseClass(ABC):
             constraint value) so the optimization continues instead of
             aborting. Contract violations (wrong type/shape/length of the
             returned vector) always raise regardless of this setting.
+            ``NSGAII_Optimizer`` keeps penalized rows in its population;
+            ``MOBOOptimizer`` quarantines them from the surrogate and the
+            reported front (see that class for details).
         :param failure_penalty: Objective value assigned to each objective of a
             failed evaluation when ``on_evaluation_failure="penalize"``.
             Must be a finite, positive number, and worse (larger, for
@@ -143,8 +156,8 @@ class TopasMOOBaseClass(ABC):
             dominated. Default ``1e6``.
         :param resume: If True, continue a previous run in the same simulation
             folder: the evaluation cache, ``evaluation_index``
-            (``logs/RunState.json``), and (if present) the per-generation
-            algorithm checkpoint are loaded so completed simulations are not
+            (``logs/RunState.json``), and (if present) the per-algorithm
+            checkpoint are loaded so completed simulations are not
             repeated and iteration numbering continues. The simulation folder
             is not cleared when resuming.
         :param dump_optimization_settings: If True, write a jsonpickle snapshot
@@ -219,7 +232,17 @@ class TopasMOOBaseClass(ABC):
             )
         self.resume = bool(resume)
         self.dump_optimization_settings = bool(dump_optimization_settings)
+        # Guards the destructive branch of SetUpDirectoryStructure; see there.
+        self._dirs_ready = False
         self._n_failed_evaluations = 0
+        # Whether the most recent EvaluateObjectives call returned a penalized
+        # result rather than a real measurement. Set for every evaluation,
+        # including ones replayed from the cache, so callers read the fact
+        # instead of inferring it from the objective values.
+        self._last_evaluation_failed = False
+        # cache key -> bool, mirroring _eval_cache. Persisted so a resumed run
+        # still knows which cached designs were failures.
+        self._eval_failed = {}
         self._last_constraint_values = None
         self._eval_cache = {}
 
@@ -307,12 +330,14 @@ class TopasMOOBaseClass(ABC):
             )
 
         # Multi-objective specific tracking
-        self.AllObjectiveFunctionValues = []  # List of arrays, one array per iteration
+        self.AllObjectiveFunctionValues = []  # List of arrays, one array per evaluation
         self.AllDecisionVariables = []        # Parallel list of decision-variable vectors
         self.ParetoObjectives = []            # Objective values of the non-dominated set
         self.ParetoDecisionVars = None        # Decision variables for Pareto set
-        self.HypervolumeHistory = []          # Track hypervolume per generation
-        self.PopulationHistory = []           # Track population objectives per generation
+        # One hypervolume entry per algorithm step (NSGA-II generation or MOBO batch).
+        self.HypervolumeHistory = []
+        # List of (step_index, objectives_array) snapshots for plotting.
+        self.PopulationHistory = []
 
         if "~" in str(TopasLocation):
             TopasLocation = os.path.expanduser(str(TopasLocation))
@@ -363,22 +388,27 @@ class TopasMOOBaseClass(ABC):
     def _normalize_iteration_key(optimization_params):
         """Normalize the generation-count key to the internal ``n_iterations``.
 
-        The number of NSGA-II *generations* to run may be supplied as:
+        The number of optimization *steps* to run may be supplied as:
 
         * ``n_generations`` — preferred public spelling;
         * ``n_iterations`` — accepted alias kept for backwards compatibility;
         * ``Nitterations`` — deprecated legacy spelling (emits ``FutureWarning``).
 
-        A "generation" is one NSGA-II population step; it is **not** the same as
-        the per-evaluation ``evaluation_index`` counter (see
-        ``EvaluateObjectives``) or ``plot_frequency``, both of which count
-        individual objective evaluations.
+        This key counts algorithm steps, and **each subclass defines what a step
+        is**: for :class:`NSGAII_Optimizer` it is one NSGA-II population
+        generation, while :class:`~TopasMOO.mobo.MOBOOptimizer` reads it as one
+        acquisition batch after the initial design. Consult the subclass you are
+        configuring rather than assuming the NSGA-II meaning.
+
+        In neither case is a step the same as the per-evaluation
+        ``evaluation_index`` counter (see ``EvaluateObjectives``) or
+        ``plot_frequency``, both of which count individual objective evaluations.
 
         :param optimization_params: Parameter dict; may be updated in place.
 
         :returns: The same dict with a single ``n_iterations`` entry.
 
-        :raises ValueError: If no generation-count key is present.
+        :raises InvalidParameterError: If no generation-count key is present.
         """
         if "Nitterations" in optimization_params:
             warnings.warn(
@@ -406,9 +436,10 @@ class TopasMOOBaseClass(ABC):
             optimization_params["n_iterations"] = optimization_params.pop("n_generations")
 
         if "n_iterations" not in optimization_params:
-            raise ValueError(
+            raise InvalidParameterError(
                 "optimization_params must contain 'n_generations' "
-                "(number of NSGA-II generations to run)."
+                "(number of algorithm steps: NSGA-II generations, or MOBO "
+                "acquisition batches after the initial design)."
             )
         return optimization_params
 
@@ -683,6 +714,41 @@ class TopasMOOBaseClass(ABC):
             f.write(Entry)
         logger.info(Entry.rstrip())
 
+    def _restore_algorithm_state(self):  # noqa: B027 - optional hook, not abstract
+        """Reload any algorithm-specific state on a resumed run.
+
+        The base class restores what every optimizer shares -- the evaluation
+        cache and the evaluation counter. Algorithms that persist more than that
+        override this so resume has one trigger, fired from
+        ``SetUpDirectoryStructure``, instead of each subclass reloading itself
+        from somewhere else in its own lifecycle.
+
+        Deliberately concrete rather than abstract: an optimizer with nothing
+        extra to restore here should not be forced to declare that.
+        ``MOBOOptimizer`` reloads ``logs/MOBOCheckpoint.npz`` from this hook.
+        ``NSGAII_Optimizer`` reloads ``logs/Checkpoint.pkl`` later in
+        ``RunOptimization`` (after the pymoo ``Problem`` exists), so its
+        override of this hook remains a no-op.
+        """
+
+    def _eligible_rows(self, n_rows):
+        """Mask of evaluations that may appear on the running Pareto front.
+
+        All-``True`` here: NSGA-II carries penalized failures and infeasible
+        designs in its population by design, and filtering them out of the
+        monitoring front would misrepresent what the algorithm is working with.
+
+        Subclasses that quarantine evaluations override this so the mid-run
+        front in ``ParetoFront_Running.txt`` uses the same definition of
+        "reportable" as the final one -- otherwise a long run shows a monitoring
+        front that contradicts the result it ends on.
+
+        :param n_rows: Number of evaluations accumulated so far.
+
+        :returns: Boolean array of shape ``(n_rows,)``.
+        """
+        return np.ones(n_rows, dtype=bool)
+
     def _update_pareto_front(self):
         """Recompute the non-dominated set over all evaluations so far.
 
@@ -704,7 +770,14 @@ class TopasMOOBaseClass(ABC):
             return
 
         all_objectives = np.array(self.AllObjectiveFunctionValues)
-        pareto_indices = np.where(calculate_dominance_rank(all_objectives) == 0)[0]
+        eligible = np.where(self._eligible_rows(len(all_objectives)))[0]
+        if len(eligible):
+            ranks = calculate_dominance_rank(all_objectives[eligible])
+            pareto_indices = eligible[ranks == 0]
+        else:
+            # Nothing reportable yet; still write the (empty) running front so
+            # the file reflects the current state rather than a stale one.
+            pareto_indices = eligible
         self.ParetoObjectives = all_objectives[pareto_indices]
 
         # Store corresponding decision variables if available
@@ -909,6 +982,9 @@ class TopasMOOBaseClass(ABC):
     def EvaluateObjectives(self, x_new):
         """Run TOPAS and return the objective vector for ``x_new``.
 
+        Objectives are always **minimized**. Inequality constraint values (when
+        ``n_constraints > 0``) follow ``g(x) <= 0`` feasible.
+
         The result is cached by decision vector (``logs/EvalCache.jsonl``): a
         design that has already been evaluated (a duplicate within a run, or a
         completed design from a previous run being resumed) returns its stored
@@ -967,18 +1043,25 @@ class TopasMOOBaseClass(ABC):
                 "Pass one design at a time, not a population matrix."
             )
 
-        cache_key = tuple(self.x.flatten().tolist())
+        cache_key = self._cache_key(self.x)
         if cache_key in self._eval_cache:
             # Duplicate / resumed design: reuse the stored result, skip TOPAS.
             raw = self._eval_cache[cache_key]
+            self._last_evaluation_failed = self._eval_failed.get(cache_key, False)
         else:
             self._create_variable_dictionary(self.x)
             self._generate_topas_model()
             if not self.KeepAllResults:
                 self._empty_results_folder()
+            failed_before = self._n_failed_evaluations
             raw = self._collect_raw_objectives()
+            # _handle_runtime_failure is the only thing that increments the
+            # counter, so this records the fact at the point it is known rather
+            # than reconstructing it later from the penalty values.
+            self._last_evaluation_failed = self._n_failed_evaluations > failed_before
             self._eval_cache[cache_key] = raw
-            self._persist_evaluation(cache_key, raw)
+            self._eval_failed[cache_key] = self._last_evaluation_failed
+            self._persist_evaluation(cache_key, raw, self._last_evaluation_failed)
 
         objectives = np.asarray(raw[: self.n_objectives], dtype=float)
         if self.n_constraints > 0:
@@ -1006,9 +1089,10 @@ class TopasMOOBaseClass(ABC):
         """Run TOPAS + the user objective and return a validated ``raw`` vector.
 
         The returned vector has length ``n_objectives + n_constraints`` (objectives
-        first, then constraint values). Runtime failures (non-zero TOPAS exit, an
-        objective that raises, or non-finite values) are penalized or re-raised
-        per ``on_evaluation_failure``; contract violations always raise.
+        first, then constraint values with ``g(x) <= 0`` feasible). Objectives are
+        minimized. Runtime failures (non-zero TOPAS exit, an objective that
+        raises, or non-finite values) are penalized or re-raised per
+        ``on_evaluation_failure``; contract violations always raise.
         """
         expected = self.n_objectives + self.n_constraints
         try:
@@ -1081,13 +1165,32 @@ class TopasMOOBaseClass(ABC):
         constraints = np.full(self.n_constraints, abs(self.failure_penalty), dtype=float)
         return np.concatenate([objectives, constraints])
 
-    def _persist_evaluation(self, cache_key, raw):
-        """Append one evaluation to the JSONL evaluation cache (full precision)."""
+    @staticmethod
+    def _cache_key(x):
+        """Evaluation-cache key for one decision vector.
+
+        The single definition of the key, so anything keyed alongside
+        ``_eval_cache`` (e.g. ``MOBOOptimizer``'s per-design variance cache)
+        cannot desync from it.
+        """
+        return tuple(np.asarray(x, dtype=float).reshape(-1).tolist())
+
+    def _persist_evaluation(self, cache_key, raw, failed=False):
+        """Append one evaluation to the JSONL evaluation cache (full precision).
+
+        ``failed`` records whether ``raw`` is the penalty vector rather than a
+        real measurement, so a resumed run does not have to guess from the
+        values (an objective may legitimately return ``failure_penalty``).
+        """
         try:
             with open(self._eval_cache_loc, "a") as f:
                 f.write(
                     json.dumps(
-                        {"x": list(cache_key), "raw": [float(v) for v in raw]}
+                        {
+                            "x": list(cache_key),
+                            "raw": [float(v) for v in raw],
+                            "failed": bool(failed),
+                        }
                     )
                     + "\n"
                 )
@@ -1121,7 +1224,7 @@ class TopasMOOBaseClass(ABC):
                     continue
                 try:
                     rec = json.loads(line)
-                    key = tuple(float(v) for v in rec["x"])
+                    key = self._cache_key(rec["x"])
                     raw = np.asarray(rec["raw"], dtype=float)
                 except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
                     logger.warning("Skipping malformed eval-cache line: %s", e)
@@ -1130,6 +1233,10 @@ class TopasMOOBaseClass(ABC):
                     skipped_incompatible += 1
                     continue
                 self._eval_cache[key] = raw
+                # Records written before this field existed predate the failure
+                # flag; those runs had no quarantine, so "not recorded as
+                # failed" is the only reading their data supports.
+                self._eval_failed[key] = bool(rec.get("failed", False))
                 self.AllObjectiveFunctionValues.append(
                     np.asarray(raw[: self.n_objectives], dtype=float)
                 )
@@ -1219,7 +1326,19 @@ class TopasMOOBaseClass(ABC):
         ``ParetoFront.txt`` left by the previous run is removed, since it
         describes that run's final result and would otherwise look authoritative
         until the resumed run finishes and rewrites it.
+
+        Idempotent. The entry points call this themselves, so it no longer has
+        to be invoked by hand before ``RunOptimization`` / ``run`` / ``ask``;
+        calling it explicitly first remains supported and is then a no-op.
+
+        The guard is not an optimization. On a non-resume run this method calls
+        ``_empty_simulation_folder`` and recreates the subfolders, so a second
+        pass would delete the evaluations the first pass produced. ``_dirs_ready``
+        is set only after the structure is fully built, so a call that raises
+        part way through is retried rather than skipped.
         """
+        if self._dirs_ready:
+            return
         FullSimName = Path(self.BaseDirectory) / self.SimulationName
         if not os.path.isdir(FullSimName):
             os.mkdir(FullSimName)
@@ -1230,6 +1349,7 @@ class TopasMOOBaseClass(ABC):
             self._discard_stale_final_front()
             self._load_eval_cache()
             self._restore_evaluation_index()
+            self._restore_algorithm_state()
         else:
             self._empty_simulation_folder()
             if self.dump_optimization_settings:
@@ -1245,6 +1365,8 @@ class TopasMOOBaseClass(ABC):
 
         if self._testing_mode:
             self._setup_topas_emulator()
+
+        self._dirs_ready = True
 
 
 class TopasProblem(Problem):
@@ -1316,13 +1438,21 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
     """NSGA-II (pymoo) for multi-objective TOPAS optimization.
 
     Uses non-dominated sorting, crowding distance, and tournament selection.
-    Additional keyword arguments are forwarded to ``TopasMOOBaseClass``.
+    Shares the base-class constructor kwargs, ``RunOptimization()`` entry point,
+    minimization / ``g(x) <= 0`` conventions, and plotting attributes with
+    ``MOBOOptimizer``. Additional keyword arguments are forwarded to
+    ``TopasMOOBaseClass``.
+
+    For this class, ``optimization_params['n_generations']`` is the number of
+    NSGA-II population generations (see the base-class note that MOBO reads the
+    same key as acquisition batches).
 
     Note on ``pop_size``: the final Pareto front is the non-dominated set of the
     final population, so the number of returned solutions and their objective-space
     coverage are bounded by ``pop_size``. The default of 20 suits quick exploration;
     resolving a real front well usually needs a larger population (at the cost of
-    more TOPAS runs per generation).
+    more TOPAS runs per generation). This differs from ``MOBOOptimizer``, whose
+    reported front is the non-dominated set over all eligible observations.
 
     :param pop_size: Individuals per generation (default 20).
     :param seed: Random seed for reproducibility.
@@ -1476,13 +1606,13 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
         # Reference point: worse (i.e. larger, for minimization) than every
         # observed objective value, with a margin proportional to the observed
         # range. Using a single fixed reference keeps the per-generation
-        # hypervolumes comparable across the run.
-        all_objectives = np.vstack(populations)
-        ideal = all_objectives.min(axis=0)
-        nadir = all_objectives.max(axis=0)
-        span = nadir - ideal
-        span[span == 0] = 1.0
-        ref_point = nadir + 0.1 * span
+        # hypervolumes comparable across the run -- and sharing
+        # :func:`~TopasMOO.metrics.hypervolume_reference_point` with
+        # ``MOBOOptimizer`` keeps the *margin formula* comparable across
+        # algorithms too. (The set of points each algorithm feeds into that
+        # formula still differs: NSGA-II uses each generation's population;
+        # MOBO uses eligible observations.)
+        ref_point = hypervolume_reference_point(np.vstack(populations))
         hv_indicator = HV(ref_point=ref_point)
 
         self.HypervolumeHistory = []
