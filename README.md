@@ -79,7 +79,7 @@ results = optimizer.RunOptimization()
 # results.X: decision variables on the Pareto set; results.F: objective values
 ```
 
-To use reference-direction-based selection (reccomended for many-objective optimizations), import `NSGAIII_Optimizer` instead.
+To use reference-direction-based selection (recommended for many-objective optimizations), import `NSGAIII_Optimizer` instead.
 Its default population size is derived from its generated reference directions;
 see the [NSGA-III API reference](docsrc/index.md#nsgaiii_optimizer) before choosing
 the number of partitions for an expensive TOPAS run.
