@@ -2,15 +2,18 @@
 TopasMOO: Multi-Objective Optimization for TOPAS Monte Carlo Simulations
 
 TopasMOO extends the TopasOpt framework to handle multiple competing objectives
-using pymoo algorithms, particularly NSGA-II and NSGA-III.
+using pymoo algorithms (NSGA-II, NSGA-III) and optionally BoTorch MOBO.
 
 Each optimization must import:
 ``NSGAII_Optimizer`` or ``NSGAIII_Optimizer``
     The optimizer you construct and run (``.RunOptimization()``). This is the
     main entry point for most users.
+``MOBOOptimizer``
+    Bayesian multi-objective optimizer (requires ``uv sync --extra mobo``).
+    Drop-in sibling of the pymoo optimizers for expensive campaigns.
 ``TopasMOOBaseClass``
-    Shared base for both optimizers; subclass it to drive a different algorithm
-    while reusing evaluation, logging, and plotting.
+    Shared base for all three optimizers; subclass it to drive a different
+    algorithm while reusing evaluation, logging, and plotting.
 
 The full visualization toolbox (Pareto fronts, petal diagrams, convergence plots,
 etc.) lives in the TopasMOO.plotting subpackage; only the style entry
@@ -47,7 +50,9 @@ from .metrics import (
 )
 
 # Core optimizer classes (TopasProblem is an internal pymoo adapter that stays
-# in TopasMOO.optimizers).
+# in TopasMOO.optimizers). MOBO is imported lazily-safe: the module imports
+# without BoTorch; constructing MOBOOptimizer requires the mobo extra.
+from .mobo import MOBOOptimizer
 from .optimizers import NSGAII_Optimizer, NSGAIII_Optimizer, TopasMOOBaseClass
 
 # Plotting style entry points (the full plotting API lives in TopasMOO.plotting).
@@ -62,6 +67,7 @@ __all__ = [
     # Core classes
     "NSGAII_Optimizer",
     "NSGAIII_Optimizer",
+    "MOBOOptimizer",
     "TopasMOOBaseClass",
     # Exceptions
     "TopasMOOError",
@@ -83,4 +89,5 @@ __all__ = [
     "publication_style",
     "save_publication_figure",
 ]
+
 
