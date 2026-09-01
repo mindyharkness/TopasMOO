@@ -88,6 +88,7 @@ def _load_user_callable(module, attr_name, file_path, signature_hint):
         raise InvalidParameterError(msg)
     return func
 
+
 def _tensor_to_float(value: Any) -> float:
     """
     Convert a PyTorch tensor / NumPy / Python scalar to a Python float.
@@ -100,15 +101,13 @@ def _tensor_to_float(value: Any) -> float:
     if hasattr(value, "cpu"):
         value = value.cpu()
     if hasattr(value, "item"):
-if hasattr(value, "item"):
-    try:
-        return float(value.item())
-    except (ValueError, RuntimeError, TypeError):
-        pass
-arr = np.asarray(value, dtype=float).reshape(-1)
-if arr.size != 1 or not np.isfinite(arr[0]):
-    raise TypeError(
-        f"Expected a single finite scalar value; got shape {np.asarray(value).shape}."
-    )
-return float(arr[0])
-
+        try:
+            return float(value.item())
+        except (ValueError, RuntimeError, TypeError):
+            pass
+    arr = np.asarray(value, dtype=float).reshape(-1)
+    if arr.size != 1 or not np.isfinite(arr[0]):
+        raise TypeError(
+            f"Expected a single finite scalar value; got shape {np.asarray(value).shape}."
+        )
+    return float(arr[0])

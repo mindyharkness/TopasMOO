@@ -1,5 +1,5 @@
 """
-Evaluate the ZDT1 benchmark objectives for a decision vector. 
+Evaluate the ZDT1 benchmark objectives for a decision vector.
 Reference:
         Zitzler, E., Deb, K., & Thiele, L. (2000). Comparison of multiobjective
         evolutionary algorithms: Empirical results.
