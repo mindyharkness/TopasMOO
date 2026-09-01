@@ -188,7 +188,7 @@ Rough edges in `MOBOOptimizer` that are understood and deliberately not worked a
 If you use TopasMOO, please cite it (placeholder entry until a DOI is available) and the TopasOpt paper:
 
 ```bibtex
-@software{harkness_topasmoo_2025,
+@software{harkness_topasmoo_2026,
   author       = {Harkness, Mindy},
   title        = {{TopasMOO}: Multi-objective optimization for {TOPAS} {Monte} {Carlo} simulations},
   year         = {2026},
