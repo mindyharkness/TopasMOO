@@ -48,12 +48,16 @@ def hypervolume_reference_point(objectives: np.ndarray) -> np.ndarray:
 
     :returns: Reference point of shape ``(n_objectives,)``.
     """
-    objectives = np.asarray(objectives, dtype=float)
-    ideal = objectives.min(axis=0)
-    nadir = objectives.max(axis=0)
-    span = nadir - ideal
-    span[span == 0] = 1.0
-    return nadir + 0.1 * span
+objectives = np.asarray(objectives, dtype=float)
+if objectives.ndim != 2 or objectives.shape[0] == 0 or objectives.shape[1] == 0:
+    raise ValueError(
+        "objectives must have shape (n_solutions, n_objectives) with n_solutions > 0."
+    )
+ideal = objectives.min(axis=0)
+nadir = objectives.max(axis=0)
+span = nadir - ideal
+span[span == 0] = 1.0
+return nadir + 0.1 * span
 
 
 def calculate_knee_point(pareto_objectives: np.ndarray) -> int:
