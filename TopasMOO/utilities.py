@@ -100,9 +100,15 @@ def _tensor_to_float(value: Any) -> float:
     if hasattr(value, "cpu"):
         value = value.cpu()
     if hasattr(value, "item"):
-        try:
-            return float(value.item())
-        except (ValueError, RuntimeError, TypeError):
-            pass
-    return float(np.asarray(value).reshape(-1)[0])
+if hasattr(value, "item"):
+    try:
+        return float(value.item())
+    except (ValueError, RuntimeError, TypeError):
+        pass
+arr = np.asarray(value, dtype=float).reshape(-1)
+if arr.size != 1 or not np.isfinite(arr[0]):
+    raise TypeError(
+        f"Expected a single finite scalar value; got shape {np.asarray(value).shape}."
+    )
+return float(arr[0])
 
