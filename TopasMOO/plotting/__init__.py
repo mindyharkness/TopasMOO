@@ -9,6 +9,7 @@ from .comprehensive import (
 from .convergence import plot_objective_convergence, plot_parameter_convergence
 from .correlation import plot_parameter_objective_correlation
 from .decision import plot_decision_heatmap
+from .gp_correlation import plot_gp_prediction_correlation
 from .hypervolume import plot_hypervolume_convergence
 from .parallel import plot_parallel_coordinates
 from .pareto import (
@@ -45,6 +46,7 @@ __all__ = [
     "plot_petal_diagram_single",
     "plot_petal_diagram_multi",
     "plot_parameter_objective_correlation",
+    "plot_gp_prediction_correlation",
     "plot_decision_heatmap",
     "plot_parallel_coordinates",
     # Population dynamics

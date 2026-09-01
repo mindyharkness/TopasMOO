@@ -1,7 +1,10 @@
+"""TOPAS script generator for the MOBO development example (testing_mode ZDT1).
+
+This does not produce a runnable TOPAS simulation. It records the current
+decision variables as comments so ``TopasObjectiveFunction`` can read them back
+in testing mode. A real study swaps the body for genuine TOPAS input.
 """
-TOPAS script generator for the Development Example. This is run in testing mode, so does not produce a runnable TOPAS simulation.
-It records the current decision variables as comments so ``TopasObjectiveFunction`` can read them back in testing mode.
-"""
+
 
 PARAM_PREFIX = "# PARAM "
 
@@ -16,7 +19,7 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     :returns: Tuple ``(scripts, names)`` -- a list of scripts (each a list of
         lines) and the matching list of base filenames.
     """
-    script = ["# Development Example (ZDT1 in testing_mode)"]
+    script = ["# MOBO Development Example (ZDT1 in testing_mode)"]
     script.append(f"# iteration {iteration}")
     # Iterate in insertion order, which is the optimizer's ParameterNames order
     # (VariableDict is built from it and ``**kwargs`` preserves that order).
@@ -24,5 +27,4 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     # land between "x1" and "x2" and the objective would score a permuted design.
     for key, value in variable_dict.items():
         script.append(f"{PARAM_PREFIX}{key} = {value}")
-    return [script], ["DevelopmentExample"]
-
+    return [script], ["MOBODevelopmentExample"]

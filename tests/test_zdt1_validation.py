@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from pymoo.indicators.hv import HV
 
-from examples.DevelopmentExample.ValidationMetrics import (
+from examples.ValidationMetrics import (
     IGD_LIMIT,
     MAX_FRONT_ERROR_LIMIT,
     ValidationSummary,

@@ -6,6 +6,9 @@ import importlib.util
 import logging
 import os
 import sys
+from typing import Any
+
+import numpy as np
 
 from .exceptions import InvalidParameterError
 
@@ -84,3 +87,27 @@ def _load_user_callable(module, attr_name, file_path, signature_hint):
         logger.error(msg)
         raise InvalidParameterError(msg)
     return func
+
+
+def _tensor_to_float(value: Any) -> float:
+    """
+    Convert a PyTorch tensor / NumPy / Python scalar to a Python float.
+
+    Any tensor entering an f-string, log line, comparison against a Python
+    float, or a NumPy-consuming function must go through this helper.
+    """
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "cpu"):
+        value = value.cpu()
+    if hasattr(value, "item"):
+        try:
+            return float(value.item())
+        except (ValueError, RuntimeError, TypeError):
+            pass
+    arr = np.asarray(value, dtype=float).reshape(-1)
+    if arr.size != 1 or not np.isfinite(arr[0]):
+        raise TypeError(
+            f"Expected a single finite scalar value; got shape {np.asarray(value).shape}."
+        )
+    return float(arr[0])

@@ -99,7 +99,7 @@ def TopasObjectiveFunction(ResultsLocation, iteration):
     # If ground truth doesn't exist, create a simple target
     try:
         GroundTruthResults = WaterTankData(GroundTruthDataPath, GroundTruthDataFile)
-    except:
+    except Exception:
         # Fallback: use current results as "ground truth" for testing
         print("Warning: Could not load ground truth data. Using simplified objectives.")
         # In this case, just use dose-based objectives

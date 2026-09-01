@@ -7,7 +7,11 @@ import pytest
 import TopasMOO
 from TopasMOO.exceptions import MalformedOutputError
 from TopasMOO.io import ReadInMultiObjectiveLogFile
-from TopasMOO.plotting import DEFAULT_FINAL_PLOTS, plot_parallel_coordinates
+from TopasMOO.plotting import (
+    DEFAULT_FINAL_PLOTS,
+    plot_gp_prediction_correlation,
+    plot_parallel_coordinates,
+)
 from TopasMOO.plotting.comprehensive import (
     GenerateComprehensiveVisualizations,
     RunData,
@@ -43,6 +47,7 @@ def test_resolve_final_plots_aliases_and_iterable() -> None:
     assert "parallel" in _resolve_final_plots("all")[0]
     assert _resolve_final_plots(["pareto", "parallel"])[0] == {"pareto", "parallel"}
     assert _resolve_final_plots("not_a_key")[0] == set()
+    assert _resolve_final_plots("gp_correlation")[0] == {"gp_correlation"}
 
 
 def test_generate_comprehensive_accepts_single_key_string(tmp_path) -> None:
@@ -74,6 +79,30 @@ def test_plotting_public_api_exports_parallel_coordinates() -> None:
     ax = plot_parallel_coordinates(pareto)
     assert ax is not None
     plt.close(ax.figure)
+
+
+def test_plotting_public_api_exports_gp_correlation() -> None:
+    observed = np.array([[1.0, 3.0], [2.0, 2.0], [3.0, 1.0]])
+    axes = plot_gp_prediction_correlation(observed, observed + 0.1)
+    assert axes.shape == (1, 2)
+    plt.close(axes[0, 0].figure)
+
+
+def test_generate_comprehensive_adds_gp_correlation_for_mobo_default(tmp_path) -> None:
+    observed = np.array([[1.0, 3.0], [2.0, 2.0], [3.0, 1.0]])
+    run = RunData(
+        pareto_objectives=observed,
+        n_objectives=2,
+        parameter_names=["x1", "x2"],
+        observed_objectives=observed,
+        gp_prediction_history=observed + 0.1,
+        failed_mask=np.zeros(3, dtype=bool),
+    )
+
+    GenerateComprehensiveVisualizations(run, tmp_path)
+
+    assert (tmp_path / "GPPredictionCorrelation.pdf").is_file()
+    assert (tmp_path / "GPPredictionCorrelation.png").is_file()
 
 
 def test_root_package_exposes_publication_variants() -> None:

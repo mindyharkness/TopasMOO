@@ -63,9 +63,9 @@ Optimizer = tmo.NSGAII_Optimizer(
 results = Optimizer.RunOptimization()
 
 # Print summary
-print(f"\nOptimization Complete!")
+print("\nOptimization Complete!")
 print(f"Found {len(results.F)} solutions in Pareto front")
-print(f"\nPareto front objective values:")
+print("\nPareto front objective values:")
 print(results.F)
-print(f"\nCorresponding parameter values:")
+print("\nCorresponding parameter values:")
 print(results.X)

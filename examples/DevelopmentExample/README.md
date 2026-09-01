@@ -26,7 +26,7 @@ The analytical Pareto front is `f2 = 1 - sqrt(f1)` for `f1` in `[0, 1]`.
 - `DevelopmentExample_main.py` — runs the optimization and validation
 - `TopasObjectiveFunction.py` — implements the ZDT1 objectives
 - `GenerateTopasScripts.py` — stores parameters for testing mode
-- `ValidationMetrics.py` — generates the concise numerical validation
+- `../ValidationMetrics.py` — shared concise numerical validation
 
 ## Running the example
 

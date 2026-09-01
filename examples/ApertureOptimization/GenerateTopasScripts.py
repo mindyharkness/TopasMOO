@@ -4,9 +4,6 @@ It is called by the Optimizer object, and receives a dictionary of the current v
 It returns a list of strings, where each string corresponds to a line in the Topas script.
 """
 
-from pathlib import Path
-
-
 def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     """
     This file simply returns a list object, where each list entry corresponds to
