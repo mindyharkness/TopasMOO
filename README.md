@@ -170,7 +170,7 @@ The base class defaults to `on_evaluation_failure="penalize"`, which gives a cra
 `RunOptimization()` / `run()` therefore detect penalized rows and record them in `train_failed`. They stay in `train_X` / `train_Y` so indices and history stay aligned, but are excluded from GP training, from both reference points, and from the reported Pareto front. Driving `ask` / `tell` yourself with an evaluator that can fail? Pass `failed=` so the same quarantine applies:
 
 ```python
-optimizer.tell(X, Y, C=C, failed=np.array([False, True, False]))
+optimizer.tell(X, Y, failed=np.array([False, True, False]))
 ```
 
 Quarantine limits the damage but does not make a failure free — the batch still spent its budget, and a run that fails often is better diagnosed than absorbed. For campaigns where a crash means the objective is genuinely undefined rather than merely bad, consider `on_evaluation_failure="raise"`.
