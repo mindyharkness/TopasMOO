@@ -38,11 +38,6 @@ dependencies = [
 examples = [
     "topas2numpy>=0.2.0",
 ]
-# Only needed for the opt-in `dump_optimization_settings=True` debug snapshot
-# (`OptimizationSettings.json`); resume does not use it.
-settings-dump = [
-    "jsonpickle>=4.0.0",
-]
 # Bayesian optimization backend for MOBOOptimizer; imported lazily so the
 # pymoo-based NSGA-II path never pulls in the torch stack.
 mobo = [

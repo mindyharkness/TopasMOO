@@ -168,27 +168,18 @@ First release published to PyPI. Pre-1.0 cleanup; breaking changes from
   otherwise leave the earlier run's front looking like the current result.
 - Shared `plot_pareto_front()` dispatcher selects 2D / 3D / projections
   from objective count (used by intermediate and final plot paths).
-- `OptimizationSettings.json` (jsonpickle snapshot) is opt-in via
-  `dump_optimization_settings=True`; off by default because resume does
-  not use it.
 - QUICKSTART.md documents the files a run produces under `logs/` and how to
   resume an interrupted run.
 - Visualization docs (`docsrc/visualization.md`) describe the bundled
   Matplotlib styles only; the optional `scienceplots` extra was removed
   from the `examples` optional dependency group.
-- `jsonpickle` moved from a required dependency to a new `settings-dump`
-  extra, since nothing outside the opt-in `dump_optimization_settings`
-  snapshot uses it. Install with `pip install TopasMOO[settings-dump]` if
-  you enable that flag; `_copy_self` raises a message naming the extra
-  when it is missing. A default install now pulls one fewer package.
 - **Breaking:** American spelling throughout the optimizer API: module
   `Optimisers.py` / `optimisers.py` → `optimizers.py`; class
   `NSGAII_Optimiser` → `NSGAII_Optimizer`; methods/params such as
   `RunOptimisation` → `RunOptimization`, `optimisation_params` →
   `optimization_params`, `OptimisationDirectory` → `OptimizationDirectory`,
-  and log/settings filenames (`OptimisationLogs.txt` →
-  `OptimizationLogs.txt`, `OptimisationSettings.json` →
-  `OptimizationSettings.json`). Recommended import:
+  and log filenames (`OptimisationLogs.txt` → `OptimizationLogs.txt`).
+  Recommended import:
   `from TopasMOO import NSGAII_Optimizer`.
 - **Breaking:** `_EmptySimulationFolder` no longer prompts via `input()`
   and no longer raises `SystemExit`. When the simulation folder is

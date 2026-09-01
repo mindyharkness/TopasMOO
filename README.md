@@ -105,7 +105,7 @@ optimizer = MOBOOptimizer(
     OptimizationDirectory=...,
     TopasLocation="testing_mode",
     n_init=20,
-    batch_size=2,           # or set n_parallel_jobs to match concurrent TOPAS jobs
+    batch_size=2,
     acquisition="auto",     # NEHVI for 2–4 objectives, ParEGO for 5+
     seed=42,
 )

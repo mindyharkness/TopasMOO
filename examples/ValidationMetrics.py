@@ -1,4 +1,4 @@
-"""Concise numerical validation for the ZDT1 development example."""
+"""Concise numerical validation shared by the ZDT1 examples."""
 
 from __future__ import annotations
 

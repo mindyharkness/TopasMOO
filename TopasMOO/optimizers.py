@@ -95,7 +95,6 @@ class TopasMOOBaseClass(ABC):
         on_evaluation_failure="penalize",
         failure_penalty=1e6,
         resume=False,
-        dump_optimization_settings=False,
     ):
         """Initialize shared TOPAS multi-objective state (subclasses only).
 
@@ -160,13 +159,6 @@ class TopasMOOBaseClass(ABC):
             checkpoint are loaded so completed simulations are not
             repeated and iteration numbering continues. The simulation folder
             is not cleared when resuming.
-        :param dump_optimization_settings: If True, write a jsonpickle snapshot
-            of constructor state to ``OptimizationSettings.json`` when the
-            simulation folder is first created. Default ``False`` (not used by
-            resume; enable only for debugging or archival). Requires the
-            optional ``jsonpickle`` dependency:
-            ``pip install TopasMOO[settings-dump]``.
-
         :raises TypeError: If ``TopasMOOBaseClass`` is constructed directly.
         :raises InvalidParameterError: If ``n_objectives``, ``n_constraints``,
             ``on_evaluation_failure``, or bounds/start point are invalid.
@@ -231,7 +223,6 @@ class TopasMOOBaseClass(ABC):
                 f"Got {failure_penalty!r}."
             )
         self.resume = bool(resume)
-        self.dump_optimization_settings = bool(dump_optimization_settings)
         # Guards the destructive branch of SetUpDirectoryStructure; see there.
         self._dirs_ready = False
         self._n_failed_evaluations = 0
@@ -843,34 +834,6 @@ class TopasMOOBaseClass(ABC):
         )
         GenerateComprehensiveVisualizations(self, SaveLoc, final_plots=self.final_plots)
 
-    def _copy_self(self):
-        """Serialize picklable attributes to ``OptimizationSettings.json``.
-
-        Only runs when ``dump_optimization_settings=True``. ``jsonpickle`` is an
-        optional dependency (``pip install TopasMOO[settings-dump]``) since
-        nothing else in the library needs it.
-
-        :raises ImportError: If ``jsonpickle`` is not installed.
-        """
-        try:
-            import jsonpickle
-        except ImportError as exc:
-            raise ImportError(
-                "dump_optimization_settings=True requires the optional "
-                "'jsonpickle' package. Install it with "
-                "`pip install TopasMOO[settings-dump]`, or leave "
-                "dump_optimization_settings at its default of False."
-            ) from exc
-
-        Filename = (
-            Path(self.BaseDirectory)
-            / Path(self.SimulationName)
-            / "OptimizationSettings.json"
-        )
-        Attributes = jsonpickle.encode(self, unpicklable=True, max_depth=4)
-        with open(str(Filename), "w") as f:
-            f.write(Attributes)
-
     def _empty_results_folder(self):
         """Delete contents of the ``Results`` folder (used when ``KeepAllResults`` is False)."""
         ResultsLocation = str(
@@ -973,6 +936,122 @@ class TopasMOOBaseClass(ABC):
             normalized.append(matrix.copy())
 
         return normalized
+
+    def _run_pymoo_optimization(self, algorithm_name):
+        """Run a configured pymoo optimizer and persist its final state."""
+        self.SetUpDirectoryStructure()
+        problem = TopasProblem(self)
+        termination = get_termination("n_gen", self.n_generations)
+
+        algorithm = self._load_state_checkpoint(problem)
+        if algorithm is None:
+            algorithm = self.algorithm
+            algorithm.setup(
+                problem,
+                termination=termination,
+                seed=self.seed,
+                verbose=self.verbose,
+            )
+            logger.info(
+                "Starting %s optimization with %d individuals for %d generations",
+                algorithm_name,
+                self.pop_size,
+                self.n_generations,
+            )
+        else:
+            logger.info(
+                "Resuming %s from checkpoint (generation %s)",
+                algorithm_name,
+                algorithm.n_gen,
+            )
+
+        populations = []
+        while algorithm.has_next():
+            algorithm.next()
+            populations.append(np.asarray(algorithm.pop.get("F")).copy())
+            self._save_state_checkpoint(algorithm)
+
+        self.res = algorithm.result()
+        self._extract_optimization_history(populations)
+        self.ParetoObjectives = np.atleast_2d(np.asarray(self.res.F, dtype=float))
+        self.ParetoDecisionVars = np.atleast_2d(np.asarray(self.res.X, dtype=float))
+        LogParetoFrontToFile(
+            self._ParetoLogFileLoc,
+            self.ParetoObjectives,
+            self.ParameterNames,
+            self.n_objectives,
+            ParetoDecisionVars=self.ParetoDecisionVars,
+        )
+        self._write_final_log_entry()
+        self._persist_run_state()
+
+        logger.info(
+            "Optimization complete. Found %d solutions in the Pareto front.",
+            len(self.ParetoObjectives),
+        )
+        self._plot_convergence()
+        self.GenerateFinalVisualizations()
+        return self.res
+
+    def _extract_optimization_history(self, populations=None):
+        """Fill hypervolume and population history from per-generation data."""
+        populations = self._normalize_history_populations(populations)
+        if not populations:
+            return
+
+        from pymoo.indicators.hv import HV
+
+        self.PopulationHistory = [
+            (generation, population.copy())
+            for generation, population in enumerate(populations)
+        ]
+        hv_indicator = HV(
+            ref_point=hypervolume_reference_point(np.vstack(populations))
+        )
+        self.HypervolumeHistory = []
+        for generation, objectives in enumerate(populations):
+            try:
+                self.HypervolumeHistory.append(hv_indicator(objectives))
+            except Exception as exc:
+                logger.warning(
+                    "Could not compute hypervolume for generation %d: %s",
+                    generation,
+                    exc,
+                )
+                self.HypervolumeHistory.append(0.0)
+
+        logger.info("Extracted history for %d generations", len(self.HypervolumeHistory))
+        if self.HypervolumeHistory:
+            logger.info("Final hypervolume: %.6f", self.HypervolumeHistory[-1])
+
+    def _save_state_checkpoint(self, algorithm):
+        """Persist pymoo state without its user-module problem reference."""
+        problem, history = algorithm.problem, algorithm.history
+        algorithm.problem, algorithm.history = None, []
+        try:
+            with open(self._checkpoint_loc, "wb") as f:
+                pickle.dump(algorithm, f)
+        except Exception as exc:
+            logger.warning("Could not write algorithm checkpoint: %s", exc)
+        finally:
+            algorithm.problem, algorithm.history = problem, history
+
+    def _load_state_checkpoint(self, problem):
+        """Return a resumed pymoo algorithm, or ``None`` to start fresh."""
+        if not (self.resume and os.path.isfile(self._checkpoint_loc)):
+            return None
+        try:
+            with open(self._checkpoint_loc, "rb") as f:
+                algorithm = pickle.load(f)
+            algorithm.problem = problem
+            return algorithm
+        except Exception as exc:
+            logger.warning(
+                "Could not load checkpoint (%s); restarting the GA "
+                "(cached evaluations are still reused).",
+                exc,
+            )
+            return None
 
     @abstractmethod
     def RunOptimization(self):
@@ -1352,8 +1431,6 @@ class TopasMOOBaseClass(ABC):
             self._restore_algorithm_state()
         else:
             self._empty_simulation_folder()
-            if self.dump_optimization_settings:
-                self._copy_self()
             os.mkdir(Path(FullSimName) / "logs")
             os.mkdir(Path(FullSimName) / "logs" / "TopasLogs")
             os.mkdir(Path(FullSimName) / "TopasScripts")
@@ -1496,179 +1573,8 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
         )
 
     def RunOptimization(self):
-        """Set up folders, run NSGA-II to the generation limit, then finalize outputs.
-
-        Driven by pymoo's ask/tell loop so the algorithm state can be
-        checkpointed after every generation (``logs/Checkpoint.pkl``). Together
-        with the evaluation cache (``logs/EvalCache.jsonl``) and
-        ``logs/RunState.json`` (evaluation counter), this lets a crashed or
-        interrupted run be resumed via ``resume=True`` without repeating
-        completed TOPAS simulations or resetting iteration numbering.
-        (A resumed run's hypervolume history covers only post-resume
-        generations; the official final Pareto front is always ``res.F``.)
-
-        :returns: The pymoo ``Result`` object (also stored as ``self.res``).
-            ``res.F`` / ``res.X`` are the official final Pareto set and match
-            ``ParetoFront.txt`` and end-of-run figures. Mid-run monitoring uses
-            the ND set over all evaluations so far (``ParetoFront_Running.txt``).
-        """
-        self.SetUpDirectoryStructure()
-
-        # Create pymoo problem
-        problem = TopasProblem(self)
-
-        # Set up termination criterion
-        termination = get_termination("n_gen", self.n_generations)
-
-        algorithm = self._load_state_checkpoint(problem)
-        if algorithm is None:
-            algorithm = self.algorithm
-            algorithm.setup(
-                problem,
-                termination=termination,
-                seed=self.seed,
-                verbose=self.verbose,
-            )
-            logger.info(
-                "Starting NSGA-II optimization with %d individuals for %d generations",
-                self.pop_size,
-                self.n_generations,
-            )
-        else:
-            logger.info(
-                "Resuming NSGA-II from checkpoint (generation %s)", algorithm.n_gen
-            )
-
-        # Ask/tell loop: one generation per iteration, checkpointed each step.
-        gen_populations = []
-        while algorithm.has_next():
-            algorithm.next()
-            gen_populations.append(np.asarray(algorithm.pop.get("F")).copy())
-            self._save_state_checkpoint(algorithm)
-
-        self.res = algorithm.result()
-
-        self._extract_optimization_history(gen_populations)
-        # Official final front: the non-dominated set of the optimizer's final
-        # population (``res.F`` / ``res.X``). Intermediate monitoring during the
-        # run uses the ND set over *all evaluations* and writes
-        # ``ParetoFront_Running.txt``; only this end-of-run path writes
-        # ``ParetoFront.txt``, so the two definitions never share a file.
-        self.ParetoObjectives = np.atleast_2d(np.asarray(self.res.F, dtype=float))
-        self.ParetoDecisionVars = np.atleast_2d(np.asarray(self.res.X, dtype=float))
-        LogParetoFrontToFile(
-            self._ParetoLogFileLoc,
-            self.ParetoObjectives,
-            self.ParameterNames,
-            self.n_objectives,
-            ParetoDecisionVars=self.ParetoDecisionVars,
-        )
-        self._write_final_log_entry()
-        self._persist_run_state()
-
-        logger.info(
-            "Optimization complete. Found %d solutions in the Pareto front.",
-            len(self.ParetoObjectives),
-        )
-
-        # Generate final visualizations
-        self._plot_convergence()
-        self.GenerateFinalVisualizations()
-
-        return self.res
-
-    def _extract_optimization_history(self, populations=None):
-        """Fill ``HypervolumeHistory`` and ``PopulationHistory`` from per-generation data.
-
-        :param populations: Optional single objective matrix, three-dimensional
-            generation stack, or iterable of per-generation objective matrices
-            (each ``(pop_size, n_obj)``). The built-in NSGA-II path passes a
-            list. If ``None``, falls back to ``self.res.history`` when populated.
-
-        The hypervolume reference point is derived from the objective values
-        actually observed across all generations (per-objective nadir plus a 10%
-        margin of the observed range), so the indicator is meaningful regardless
-        of the objectives' scale or sign rather than assuming values in ``[0, 1]``.
-        Logs a warning and records ``0.0`` for any generation whose hypervolume
-        cannot be computed.
-        """
-        populations = self._normalize_history_populations(populations)
-        if len(populations) == 0:
-            return
-
-        from pymoo.indicators.hv import HV
-
-        # Collect every generation's population objectives once.
-        self.PopulationHistory = [
-            (gen_idx, pop.copy()) for gen_idx, pop in enumerate(populations)
-        ]
-
-        # Reference point: worse (i.e. larger, for minimization) than every
-        # observed objective value, with a margin proportional to the observed
-        # range. Using a single fixed reference keeps the per-generation
-        # hypervolumes comparable across the run -- and sharing
-        # :func:`~TopasMOO.metrics.hypervolume_reference_point` with
-        # ``MOBOOptimizer`` keeps the *margin formula* comparable across
-        # algorithms too. (The set of points each algorithm feeds into that
-        # formula still differs: NSGA-II uses each generation's population;
-        # MOBO uses eligible observations.)
-        ref_point = hypervolume_reference_point(np.vstack(populations))
-        hv_indicator = HV(ref_point=ref_point)
-
-        self.HypervolumeHistory = []
-        for gen_idx, pop_objectives in enumerate(populations):
-            try:
-                self.HypervolumeHistory.append(hv_indicator(pop_objectives))
-            except Exception as e:
-                logger.warning(
-                    f"Could not compute hypervolume for generation {gen_idx}: {e}"
-                )
-                self.HypervolumeHistory.append(0.0)
-
-        logger.info(f"Extracted history for {len(self.HypervolumeHistory)} generations")
-        if self.HypervolumeHistory:
-            logger.info(f"Final hypervolume: {self.HypervolumeHistory[-1]:.6f}")
-
-    def _save_state_checkpoint(self, algorithm):
-        """Pickle the NSGA-II algorithm state for exact resume (best-effort).
-
-        The problem and the (potentially large) history are detached before
-        pickling -- the problem holds the user-imported modules and is re-attached
-        on resume, and the full (x, F) record lives in the evaluation cache. A
-        failure here is logged and ignored: the evaluation cache alone is enough
-        to resume without repeating completed simulations.
-        """
-        problem, history = algorithm.problem, algorithm.history
-        algorithm.problem, algorithm.history = None, []
-        try:
-            with open(self._checkpoint_loc, "wb") as f:
-                pickle.dump(algorithm, f)
-        except Exception as e:
-            logger.warning("Could not write algorithm checkpoint: %s", e)
-        finally:
-            algorithm.problem, algorithm.history = problem, history
-
-    def _load_state_checkpoint(self, problem):
-        """Return a resumed NSGA-II algorithm from ``Checkpoint.pkl``, or ``None``.
-
-        Only attempts to load when ``resume=True`` and a checkpoint exists. On
-        any failure it returns ``None`` so the GA restarts from scratch -- the
-        warm evaluation cache still prevents completed simulations from re-running.
-        """
-        if not (self.resume and os.path.isfile(self._checkpoint_loc)):
-            return None
-        try:
-            with open(self._checkpoint_loc, "rb") as f:
-                algorithm = pickle.load(f)
-            algorithm.problem = problem
-            return algorithm
-        except Exception as e:
-            logger.warning(
-                "Could not load checkpoint (%s); restarting the GA "
-                "(cached evaluations are still reused).",
-                e,
-            )
-            return None
+        """Run NSGA-II through the shared pymoo lifecycle."""
+        return self._run_pymoo_optimization("NSGA-II")
 
 
 class NSGAIII_Optimizer(TopasMOOBaseClass):
@@ -1757,177 +1663,5 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
         )
 
     def RunOptimization(self):
-        """Set up folders, run NSGA-III to the generation limit, then finalize outputs.
-
-        Driven by pymoo's ask/tell loop so the algorithm state can be
-        checkpointed after every generation (``logs/Checkpoint.pkl``). Together
-        with the evaluation cache (``logs/EvalCache.jsonl``) and
-        ``logs/RunState.json`` (evaluation counter), this lets a crashed or
-        interrupted run be resumed via ``resume=True`` without repeating
-        completed TOPAS simulations or resetting iteration numbering.
-        (A resumed run's hypervolume history covers only post-resume
-        generations; the official final Pareto front is always ``res.F``.)
-
-        :returns: The pymoo ``Result`` object (also stored as ``self.res``).
-            ``res.F`` / ``res.X`` are the official final Pareto set and match
-            ``ParetoFront.txt`` and end-of-run figures. Mid-run monitoring uses
-            the ND set over all evaluations so far (``ParetoFront_Running.txt``).
-        """
-        self.SetUpDirectoryStructure()
-
-        # Create pymoo problem
-        problem = TopasProblem(self)
-
-        # Set up termination criterion
-        termination = get_termination("n_gen", self.n_generations)
-
-        algorithm = self._load_state_checkpoint(problem)
-        if algorithm is None:
-            algorithm = self.algorithm
-            algorithm.setup(
-                problem,
-                termination=termination,
-                seed=self.seed,
-                verbose=self.verbose,
-            )
-            logger.info(
-                "Starting NSGA-III optimization with %d individuals for %d generations",
-                self.pop_size,
-                self.n_generations,
-            )
-        else:
-            logger.info(
-                "Resuming NSGA-III from checkpoint (generation %s)", algorithm.n_gen
-            )
-
-        # Ask/tell loop: one generation per iteration, checkpointed each step.
-        gen_populations = []
-        while algorithm.has_next():
-            algorithm.next()
-            gen_populations.append(np.asarray(algorithm.pop.get("F")).copy())
-            self._save_state_checkpoint(algorithm)
-
-        self.res = algorithm.result()
-
-        self._extract_optimization_history(gen_populations)
-
-        # Official final front: the non-dominated set of the optimizer's final
-        # population (``res.F`` / ``res.X``). Intermediate monitoring during the
-        # run uses the ND set over *all evaluations* and writes
-        # ``ParetoFront_Running.txt``; only this end-of-run path writes
-        # ``ParetoFront.txt``, so the two definitions never share a file.
-        self.ParetoObjectives = np.atleast_2d(np.asarray(self.res.F, dtype=float))
-        self.ParetoDecisionVars = np.atleast_2d(np.asarray(self.res.X, dtype=float))
-        LogParetoFrontToFile(
-            self._ParetoLogFileLoc,
-            self.ParetoObjectives,
-            self.ParameterNames,
-            self.n_objectives,
-            ParetoDecisionVars=self.ParetoDecisionVars,
-        )
-        self._write_final_log_entry()
-        self._persist_run_state()
-
-        logger.info(
-            "Optimization complete. Found %d solutions in the Pareto front.",
-            len(self.ParetoObjectives),
-        )
-
-        # Generate final visualizations
-        self._plot_convergence()
-        self.GenerateFinalVisualizations()
-
-        return self.res
-
-    def _extract_optimization_history(self, populations=None):
-        """Fill ``HypervolumeHistory`` and ``PopulationHistory`` from per-generation data.
-
-        :param populations: Optional single objective matrix, three-dimensional
-            generation stack, or iterable of per-generation objective matrices
-            (each ``(pop_size, n_obj)``). The built-in NSGA-III path passes a
-            list. If ``None``, falls back to ``self.res.history`` when populated.
-
-        The hypervolume reference point is derived from the objective values
-        actually observed across all generations (per-objective nadir plus a 10%
-        margin of the observed range), so the indicator is meaningful regardless
-        of the objectives' scale or sign rather than assuming values in ``[0, 1]``.
-        Logs a warning and records ``0.0`` for any generation whose hypervolume
-        cannot be computed.
-        """
-        populations = self._normalize_history_populations(populations)
-        if len(populations) == 0:
-            return
-
-        from pymoo.indicators.hv import HV
-
-        # Collect every generation's population objectives once.
-        self.PopulationHistory = [
-            (gen_idx, pop.copy()) for gen_idx, pop in enumerate(populations)
-        ]
-
-        # Reference point: worse (i.e. larger, for minimization) than every
-        # observed objective value, with a margin proportional to the observed
-        # range. Using a single fixed reference keeps the per-generation
-        # hypervolumes comparable across the run.
-        all_objectives = np.vstack(populations)
-        ideal = all_objectives.min(axis=0)
-        nadir = all_objectives.max(axis=0)
-        span = nadir - ideal
-        span[span == 0] = 1.0
-        ref_point = nadir + 0.1 * span
-        hv_indicator = HV(ref_point=ref_point)
-
-        self.HypervolumeHistory = []
-        for gen_idx, pop_objectives in enumerate(populations):
-            try:
-                self.HypervolumeHistory.append(hv_indicator(pop_objectives))
-            except Exception as e:
-                logger.warning(
-                    f"Could not compute hypervolume for generation {gen_idx}: {e}"
-                )
-                self.HypervolumeHistory.append(0.0)
-
-        logger.info(f"Extracted history for {len(self.HypervolumeHistory)} generations")
-        if self.HypervolumeHistory:
-            logger.info(f"Final hypervolume: {self.HypervolumeHistory[-1]:.6f}")
-
-    def _save_state_checkpoint(self, algorithm):
-        """Pickle the NSGA-III algorithm state for exact resume (best-effort).
-
-        The problem and the (potentially large) history are detached before
-        pickling -- the problem holds the user-imported modules and is re-attached
-        on resume, and the full (x, F) record lives in the evaluation cache. A
-        failure here is logged and ignored: the evaluation cache alone is enough
-        to resume without repeating completed simulations.
-        """
-        problem, history = algorithm.problem, algorithm.history
-        algorithm.problem, algorithm.history = None, []
-        try:
-            with open(self._checkpoint_loc, "wb") as f:
-                pickle.dump(algorithm, f)
-        except Exception as e:
-            logger.warning("Could not write algorithm checkpoint: %s", e)
-        finally:
-            algorithm.problem, algorithm.history = problem, history
-
-    def _load_state_checkpoint(self, problem):
-        """Return a resumed NSGA-III algorithm from ``Checkpoint.pkl``, or ``None``.
-
-        Only attempts to load when ``resume=True`` and a checkpoint exists. On
-        any failure it returns ``None`` so the GA restarts from scratch -- the
-        warm evaluation cache still prevents completed simulations from re-running.
-        """
-        if not (self.resume and os.path.isfile(self._checkpoint_loc)):
-            return None
-        try:
-            with open(self._checkpoint_loc, "rb") as f:
-                algorithm = pickle.load(f)
-            algorithm.problem = problem
-            return algorithm
-        except Exception as e:
-            logger.warning(
-                "Could not load checkpoint (%s); restarting the GA "
-                "(cached evaluations are still reused).",
-                e,
-            )
-            return None
+        """Run NSGA-III through the shared pymoo lifecycle."""
+        return self._run_pymoo_optimization("NSGA-III")

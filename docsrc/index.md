@@ -264,8 +264,7 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
     OptimizationDirectory, ReadMeText, G4dataLocation, TopasLocation,
     ShellScriptHeader, Overwrite, KeepAllResults, plot_frequency, final_plots,
     plot_style, intermediate_plot_style, publication_variant, n_constraints,
-    on_evaluation_failure, failure_penalty, resume,
-    dump_optimization_settings
+    on_evaluation_failure, failure_penalty, resume
         Shared with NSGAII_Optimizer; see the preceding API entry for their
         definitions.
     pop_size : int | None, default None

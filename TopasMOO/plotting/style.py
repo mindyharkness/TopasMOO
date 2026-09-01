@@ -87,11 +87,6 @@ def available_publication_variants() -> list[str]:
     return list(_PUBLICATION_VARIANTS)
 
 
-def active_publication_variant() -> str:
-    """Return the currently active publication variant name."""
-    return _active_publication_variant
-
-
 def _style_width_ratio() -> float:
     """Scale factor from the standard single-column width to the active style.
 

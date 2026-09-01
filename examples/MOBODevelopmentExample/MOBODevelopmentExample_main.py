@@ -3,14 +3,13 @@
 Production TOPAS runs need a larger ``n_init`` / batch budget; this example is
 kept small so it finishes in a reasonable time.
 """
+
 from pathlib import Path
 
 import numpy as np
 
-import ValidationMetrics as vm
-
+from examples import ValidationMetrics as vm
 from TopasMOO import MOBOOptimizer
-
 
 BaseDirectory = str(Path(__file__).parent)
 SimulationName = "MOBODevelopmentExample_Run"
@@ -52,7 +51,6 @@ optimizer = MOBOOptimizer(
     acquisition="auto",
     num_restarts=5,
     raw_samples=128,
-    n_parallel_jobs=2,  # can default batch_size when batch_size is omitted
 )
 
 print("Starting MOBO optimization...")

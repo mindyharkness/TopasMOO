@@ -10,7 +10,6 @@ Tests cover:
 - Topas problem class
 - Logging functionality
 """
-import builtins
 import os
 import sys
 from pathlib import Path
@@ -429,6 +428,28 @@ class TestOptimizationHistory:
         )
 
     @pytest.mark.parametrize(
+        ("optimizer_class", "algorithm_name"),
+        [
+            (tmo.NSGAII_Optimizer, "NSGA-II"),
+            (tmo.NSGAIII_Optimizer, "NSGA-III"),
+        ],
+    )
+    def test_run_uses_shared_pymoo_lifecycle(
+        self,
+        optimizer_class,
+        algorithm_name,
+        temp_dir,
+        basic_params,
+        opt_dir,
+    ):
+        optimizer = self._make_optimizer(
+            optimizer_class, temp_dir, basic_params, opt_dir
+        )
+        optimizer._run_pymoo_optimization = lambda name: name
+
+        assert optimizer.RunOptimization() == algorithm_name
+
+    @pytest.mark.parametrize(
         "optimizer_class", [tmo.NSGAII_Optimizer, tmo.NSGAIII_Optimizer]
     )
     @pytest.mark.parametrize("stack_generations", [False, True])
@@ -622,70 +643,6 @@ class TestDirectoryStructure:
         assert (sim_dir / "logs" / "TopasLogs").exists()
         assert (sim_dir / "TopasScripts").exists()
         assert (sim_dir / "Results").exists()
-
-    def test_creates_settings_file_when_requested(self, temp_dir, basic_params, opt_dir):
-        """Opt-in jsonpickle dump writes OptimizationSettings.json."""
-        pytest.importorskip("jsonpickle")  # optional 'settings-dump' extra
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_settings",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-            dump_optimization_settings=True,
-        )
-
-        optimizer.SetUpDirectoryStructure()
-
-        settings_file = Path(temp_dir) / "test_settings" / "OptimizationSettings.json"
-        assert settings_file.exists()
-
-        with open(settings_file, "r") as f:
-            content = f.read()
-            assert len(content) > 0
-
-    def test_default_skips_settings_file(self, temp_dir, basic_params, opt_dir):
-        """Settings dump is off by default (not required for resume)."""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_no_settings",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-
-        optimizer.SetUpDirectoryStructure()
-
-        settings_file = Path(temp_dir) / "test_no_settings" / "OptimizationSettings.json"
-        assert not settings_file.exists()
-
-    def test_settings_dump_without_jsonpickle_raises_actionable_error(
-        self, temp_dir, basic_params, opt_dir, monkeypatch
-    ):
-        """Missing optional dep names the extra to install, not just 'jsonpickle'."""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_missing_jsonpickle",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-            dump_optimization_settings=True,
-        )
-
-        real_import = builtins.__import__
-
-        def _no_jsonpickle(name, *args, **kwargs):
-            if name == "jsonpickle":
-                raise ImportError("No module named 'jsonpickle'")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", _no_jsonpickle)
-
-        with pytest.raises(ImportError, match=r"settings-dump"):
-            optimizer.SetUpDirectoryStructure()
 
     def test_overwrite_clears_directories(self, temp_dir, basic_params, opt_dir):
         """Test that Overwrite=True clears existing directories"""
@@ -1034,4 +991,3 @@ class TestDataStorage:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

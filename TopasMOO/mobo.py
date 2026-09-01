@@ -295,11 +295,8 @@ class MOBOOptimizer(TopasMOOBaseClass):
     ``gp_prediction_history`` for prospective model diagnostics; initial-design
     rows use ``NaN`` because no fitted GP exists yet.
 
-    :param batch_size: Candidates proposed per acquisition step. Defaults to 1,
-        or to ``n_parallel_jobs`` when that is provided.
+    :param batch_size: Candidates proposed per acquisition step (default 1).
     :param n_init: Sobol initial design size. Default ``max(2*d+1, 10*d)``.
-    :param n_parallel_jobs: Declared concurrent TOPAS jobs; when set and
-        ``batch_size`` is omitted, ``batch_size`` defaults to this value.
     :param acquisition: ``"auto"`` (default), ``"qlognehvi"``, or ``"qlognparego"``.
     :param num_restarts: Restarts for ``optimize_acqf`` (default 10).
     :param raw_samples: Raw samples for ``optimize_acqf`` (default 512).
@@ -345,7 +342,6 @@ class MOBOOptimizer(TopasMOOBaseClass):
         self,
         batch_size: int | None = None,
         n_init: int | None = None,
-        n_parallel_jobs: int | None = None,
         acquisition: AcquisitionName = "auto",
         num_restarts: int = 10,
         raw_samples: int = 512,
@@ -429,10 +425,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 stacklevel=2,
             )
 
-        if batch_size is None:
-            self.batch_size = int(n_parallel_jobs) if n_parallel_jobs is not None else 1
-        else:
-            self.batch_size = int(batch_size)
+        self.batch_size = 1 if batch_size is None else int(batch_size)
         if self.batch_size < 1:
             raise InvalidParameterError(f"batch_size must be >= 1. Got {self.batch_size}.")
         recommended_n_init = max(2 * d + 1, 10 * d)
