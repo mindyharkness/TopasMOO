@@ -38,9 +38,8 @@ def _warn_if_requested(explicit_request: bool, message: str) -> None:
     if explicit_request:
         logger.warning(message)
 
-# Lean default set for finished runs. Optional keys (hypervolume) are skipped
-# quietly when their source data is unavailable. Request ``"all"`` or name
-# individual keys for parallel coordinates, decision heatmaps, etc.
+# Lean default set for finished runs.
+# Request ``"all"`` or name individual keys for parallel coordinates, decision heatmaps, etc.
 DEFAULT_FINAL_PLOTS = frozenset({
     "pareto",
     "convergence",
@@ -128,6 +127,28 @@ class RunData:
         )
 
 
+def _gp_correlation_inputs(data: RunData):
+    """Return ``(observed, predicted, valid_mask)``, or ``(None, None, None)``
+    when no finite prospective prediction pairs exist."""
+    if data.observed_objectives is None or data.gp_prediction_history is None:
+        return None, None, None
+    observed = np.asarray(data.observed_objectives, dtype=float)
+    predicted = np.asarray(data.gp_prediction_history, dtype=float)
+    if observed.ndim != 2 or observed.shape != predicted.shape:
+        return None, None, None
+    valid_mask = None
+    if data.failed_mask is not None:
+        failed = np.asarray(data.failed_mask, dtype=bool).reshape(-1)
+        if len(failed) == len(observed):
+            valid_mask = ~failed
+    finite_pairs = np.isfinite(observed) & np.isfinite(predicted)
+    if valid_mask is not None:
+        finite_pairs &= valid_mask[:, np.newaxis]
+    if not finite_pairs.any():
+        return None, None, None
+    return observed, predicted, valid_mask
+
+
 def GenerateComprehensiveVisualizations(
     run,
     save_dir: PathLike,
@@ -174,159 +195,60 @@ def GenerateComprehensiveVisualizations(
             plots.add("gp_correlation")
 
     pareto_objectives = np.asarray(data.pareto_objectives)
-    if len(pareto_objectives) == 0:
+    has_pareto = len(pareto_objectives) > 0
+    if not has_pareto:
         logger.warning(
             "No Pareto solutions found. Skipping Pareto-dependent visualizations."
         )
-    has_pareto = len(pareto_objectives) > 0
+    dec_vars = data.pareto_decision_vars
+    has_dec_vars = dec_vars is not None and len(dec_vars) > 0
+    gp_observed, gp_predicted, gp_valid = _gp_correlation_inputs(data)
 
-    n_obj = data.n_objectives
-
-    # --- Pareto front --------------------------------------------------------
-    if "pareto" in plots and has_pareto:
-        plot_pareto_front(
+    # key -> (data available, draw, message when an explicit request is skipped).
+    # Pareto and parallel plots are covered by the "No Pareto solutions" warning.
+    specs = {
+        "pareto": (has_pareto, lambda: plot_pareto_front(
+            pareto_objectives, save_dir / "ParetoFront_Final", show_knee_point=True
+        ), None),
+        "parallel": (has_pareto, lambda: plot_parallel_coordinates(
+            pareto_objectives, save_dir / "ParallelCoordinates_Final"
+        ), None),
+        "convergence": (data.log_file is not None, lambda: plot_objective_convergence(
+            data.log_file, save_dir / "Convergence_Final", n_objectives=data.n_objectives
+        ), "No log file available; skipping convergence plot."),
+        "parameter_convergence": (data.log_file is not None, lambda: plot_parameter_convergence(
+            data.log_file,
+            save_dir / "ParameterConvergence_Final",
+            parameter_names=data.parameter_names,
+        ), "No log file available; skipping parameter convergence plot."),
+        "hypervolume": (bool(data.hypervolume_history), lambda: plot_hypervolume_convergence(
+            data.hypervolume_history, save_dir / "HypervolumeConvergence"
+        ), "HypervolumeHistory not available; skipping hypervolume plot."),
+        "population_evolution": (bool(data.population_history), lambda: plot_population_evolution(
+            data.population_history, save_dir / "PopulationEvolution"
+        ), "PopulationHistory not available; skipping population evolution plot."),
+        "decision_heatmap": (has_dec_vars, lambda: plot_decision_heatmap(
+            dec_vars, save_dir / "DecisionHeatmap", parameter_names=data.parameter_names
+        ), "ParetoDecisionVars not available; skipping decision heatmap."),
+        "petal": (has_pareto, lambda: plot_petal_diagram_multi(
+            pareto_objectives, save_dir / "PetalDiagrams", title="Pareto Solutions Comparison"
+        ), "No Pareto solutions available; skipping petal diagrams."),
+        "correlation": (has_dec_vars, lambda: plot_parameter_objective_correlation(
+            dec_vars,
             pareto_objectives,
-            save_dir / "ParetoFront_Final",
-            show_knee_point=True,
-        )
-
-    if "parallel" in plots and has_pareto:
-        plot_parallel_coordinates(
-            pareto_objectives,
-            save_dir / "ParallelCoordinates_Final",
-        )
-
-    # --- Objective convergence -----------------------------------------------
-    if "convergence" in plots:
-        if data.log_file is not None:
-            plot_objective_convergence(
-                data.log_file,
-                save_dir / "Convergence_Final",
-                n_objectives=n_obj,
-            )
-        else:
-            _warn_if_requested(
-                explicit_request, "No log file available; skipping convergence plot."
-            )
-
-    # --- Parameter convergence -----------------------------------------------
-    if "parameter_convergence" in plots:
-        if data.log_file is not None:
-            plot_parameter_convergence(
-                data.log_file,
-                save_dir / "ParameterConvergence_Final",
-                parameter_names=data.parameter_names,
-            )
-        else:
-            _warn_if_requested(
-                explicit_request,
-                "No log file available; skipping parameter convergence plot.",
-            )
-
-    # --- Hypervolume convergence ---------------------------------------------
-    if "hypervolume" in plots:
-        hv = data.hypervolume_history
-        if hv:
-            plot_hypervolume_convergence(
-                hv,
-                save_dir / "HypervolumeConvergence",
-            )
-        else:
-            _warn_if_requested(
-                explicit_request, "HypervolumeHistory not available; skipping hypervolume plot."
-            )
-
-    # --- Population evolution ------------------------------------------------
-    if "population_evolution" in plots:
-        pop_hist = data.population_history
-        if pop_hist:
-            plot_population_evolution(
-                pop_hist,
-                save_dir / "PopulationEvolution",
-            )
-        else:
-            _warn_if_requested(
-                explicit_request,
-                "PopulationHistory not available; skipping population evolution plot.",
-            )
-
-    # --- Decision variable heatmap -------------------------------------------
-    if "decision_heatmap" in plots:
-        dec_vars = data.pareto_decision_vars
-        if dec_vars is not None and len(dec_vars) > 0:
-            plot_decision_heatmap(
-                dec_vars,
-                save_dir / "DecisionHeatmap",
-                parameter_names=data.parameter_names,
-            )
-        else:
-            _warn_if_requested(
-                explicit_request, "ParetoDecisionVars not available; skipping decision heatmap."
-            )
-
-    # --- Petal diagrams ------------------------------------------------------
-    if "petal" in plots:
-        if has_pareto:
-            plot_petal_diagram_multi(
-                pareto_objectives,
-                save_dir / "PetalDiagrams",
-                title="Pareto Solutions Comparison",
-            )
-        else:
-            _warn_if_requested(
-                explicit_request,
-                "No Pareto solutions available; skipping petal diagrams.",
-            )
-
-    # --- Parameter–objective correlation -------------------------------------
-    if "correlation" in plots:
-        dec_vars = data.pareto_decision_vars
-        if dec_vars is not None and len(dec_vars) > 0:
-            plot_parameter_objective_correlation(
-                dec_vars,
-                pareto_objectives,
-                save_dir / "ParameterObjectiveCorrelation",
-                parameter_names=data.parameter_names,
-            )
-        else:
-            _warn_if_requested(
-                explicit_request, "ParetoDecisionVars not available; skipping correlation plot."
-            )
-
-    # --- MOBO prospective GP prediction correlation -------------------------
-    if "gp_correlation" in plots:
-        observed = data.observed_objectives
-        predicted = data.gp_prediction_history
-        if observed is not None and predicted is not None:
-            observed = np.asarray(observed, dtype=float)
-            predicted = np.asarray(predicted, dtype=float)
-            valid_mask = None
-            if data.failed_mask is not None:
-                failed = np.asarray(data.failed_mask, dtype=bool).reshape(-1)
-                if len(failed) == len(observed):
-                    valid_mask = ~failed
-            has_predictions = observed.shape == predicted.shape and observed.ndim == 2
-            if has_predictions:
-                finite_pairs = np.isfinite(observed) & np.isfinite(predicted)
-                if valid_mask is not None:
-                    finite_pairs &= valid_mask[:, np.newaxis]
-                has_predictions = bool(np.any(finite_pairs))
-            if has_predictions:
-                plot_gp_prediction_correlation(
-                    observed,
-                    predicted,
-                    save_dir / "GPPredictionCorrelation",
-                    valid_mask=valid_mask,
-                )
-            else:
-                _warn_if_requested(
-                    explicit_request,
-                    "No prospective GP predictions available; skipping GP correlation plot.",
-                )
-        else:
-            _warn_if_requested(
-                explicit_request,
-                "GP prediction history not available; skipping GP correlation plot.",
-            )
+            save_dir / "ParameterObjectiveCorrelation",
+            parameter_names=data.parameter_names,
+        ), "ParetoDecisionVars not available; skipping correlation plot."),
+        "gp_correlation": (gp_observed is not None, lambda: plot_gp_prediction_correlation(
+            gp_observed, gp_predicted, save_dir / "GPPredictionCorrelation", valid_mask=gp_valid
+        ), "No prospective GP predictions available; skipping GP correlation plot."),
+    }
+    for key, (available, draw, skip_message) in specs.items():
+        if key not in plots:
+            continue
+        if available:
+            draw()
+        elif skip_message:
+            _warn_if_requested(explicit_request, skip_message)
 
     logger.info("Generated visualizations (%s) in %s", sorted(plots), save_dir)

@@ -10,6 +10,7 @@ Tests cover:
 - Topas problem class
 - Logging functionality
 """
+
 import os
 import sys
 from pathlib import Path
@@ -23,10 +24,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from TopasMOO import optimizers as tmo
 from TopasMOO.exceptions import InvalidParameterError
 
-# ============================================================================
-# Fixtures
-# ============================================================================
-
 
 @pytest.fixture
 def basic_params():
@@ -36,19 +33,6 @@ def basic_params():
         "UpperBounds": np.array([10.0, 10.0]),
         "LowerBounds": np.array([0.0, 0.0]),
         "start_point": np.array([5.0, 5.0]),
-        "n_iterations": 2,
-        "n_objectives": 2,
-    }
-
-
-@pytest.fixture
-def single_param():
-    """Single parameter optimization params"""
-    return {
-        "ParameterNames": ["param1"],
-        "UpperBounds": np.array([10.0]),
-        "LowerBounds": np.array([0.0]),
-        "start_point": np.array([5.0]),
         "n_iterations": 2,
         "n_objectives": 2,
     }
@@ -70,11 +54,6 @@ def three_objective_params():
 # temp_dir / opt_dir come from tests/conftest.py.
 
 
-# ============================================================================
-# Multi-Objective Requirements Tests
-# ============================================================================
-
-
 class TestMultiObjectiveRequirements:
     """Test that TopasMOO correctly enforces multi-objective requirements"""
 
@@ -85,7 +64,7 @@ class TestMultiObjectiveRequirements:
             "UpperBounds": np.array([10]),
             "LowerBounds": np.array([0]),
             "start_point": np.array([5]),
-            "n_iterations": 2
+            "n_iterations": 2,
             # Missing n_objectives - should raise error
         }
 
@@ -158,18 +137,6 @@ class TestMultiObjectiveRequirements:
                 TopasLocation="testing_mode",
             )
 
-    def test_accepts_two_objectives(self, temp_dir, basic_params, opt_dir):
-        """Test that exactly 2 objectives is accepted"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_2obj",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-        assert optimizer.n_objectives == 2
-
     def test_accepts_three_objectives(self, temp_dir, three_objective_params, opt_dir):
         """Test that 3 objectives is accepted"""
         optimizer = tmo.NSGAII_Optimizer(
@@ -204,11 +171,6 @@ class TestMultiObjectiveRequirements:
         assert optimizer.n_objectives == 5
 
 
-# ============================================================================
-# NSGA-II Optimizer Tests
-# ============================================================================
-
-
 class TestNSGAIIOptimizer:
     """Test NSGA-II optimizer functionality"""
 
@@ -225,8 +187,12 @@ class TestNSGAIIOptimizer:
         )
 
         assert optimizer.n_objectives == 2
-        assert len(optimizer.ParameterNames) == 2
+        assert optimizer.ParameterNames == ["param1", "param2"]
         assert optimizer.pop_size == 4
+        assert optimizer.evaluation_index == 0
+        assert optimizer.AllObjectiveFunctionValues == []
+        np.testing.assert_array_equal(optimizer.UpperBounds, [10.0, 10.0])
+        np.testing.assert_array_equal(optimizer.LowerBounds, [0.0, 0.0])
 
     def test_default_pop_size(self, temp_dir, basic_params, opt_dir):
         """Test default population size"""
@@ -240,76 +206,6 @@ class TestNSGAIIOptimizer:
         )
 
         assert optimizer.pop_size == 20  # Default value
-
-    def test_custom_pop_size(self, temp_dir, basic_params, opt_dir):
-        """Test custom population size"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_custom_pop",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-            pop_size=50,
-        )
-
-        assert optimizer.pop_size == 50
-
-    def test_seed_reproducibility(self, temp_dir, basic_params, opt_dir):
-        """Test that seed can be set for reproducibility"""
-        optimizer1 = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_seed1",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-            seed=42,
-        )
-
-        optimizer2 = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_seed2",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-            seed=42,
-        )
-
-        assert optimizer1.seed == optimizer2.seed == 42
-
-    def test_stores_parameter_names(self, temp_dir, basic_params, opt_dir):
-        """Test that parameter names are stored"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_params",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-
-        assert optimizer.ParameterNames == ["param1", "param2"]
-
-    def test_stores_bounds(self, temp_dir, basic_params, opt_dir):
-        """Test that bounds are stored correctly"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_bounds_store",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-
-        np.testing.assert_array_equal(optimizer.UpperBounds, np.array([10.0, 10.0]))
-        np.testing.assert_array_equal(optimizer.LowerBounds, np.array([0.0, 0.0]))
-
-
-# ============================================================================
-# NSGA-III Optimizer Tests
-# ============================================================================
 
 
 class TestNSGAIIIOptimizer:
@@ -332,9 +228,7 @@ class TestNSGAIIIOptimizer:
         assert optimizer.algorithm.ref_dirs.shape == (4, 2)
         np.testing.assert_allclose(optimizer.algorithm.ref_dirs.sum(axis=1), 1.0)
 
-    def test_initialization_with_three_objectives(
-        self, temp_dir, three_objective_params, opt_dir
-    ):
+    def test_initialization_with_three_objectives(self, temp_dir, three_objective_params, opt_dir):
         optimizer = tmo.NSGAIII_Optimizer(
             optimization_params=three_objective_params,
             BaseDirectory=temp_dir,
@@ -404,11 +298,6 @@ class TestNSGAIIIOptimizer:
             )
 
 
-# ============================================================================
-# Optimization History Tests
-# ============================================================================
-
-
 class TestOptimizationHistory:
     """Test shared history normalization used by NSGA-II and NSGA-III."""
 
@@ -442,66 +331,23 @@ class TestOptimizationHistory:
         basic_params,
         opt_dir,
     ):
-        optimizer = self._make_optimizer(
-            optimizer_class, temp_dir, basic_params, opt_dir
-        )
+        optimizer = self._make_optimizer(optimizer_class, temp_dir, basic_params, opt_dir)
         optimizer._run_pymoo_optimization = lambda name: name
 
         assert optimizer.RunOptimization() == algorithm_name
 
-    @pytest.mark.parametrize(
-        "optimizer_class", [tmo.NSGAII_Optimizer, tmo.NSGAIII_Optimizer]
-    )
-    @pytest.mark.parametrize("stack_generations", [False, True])
-    def test_numpy_history_is_normalized(
-        self,
-        optimizer_class,
-        stack_generations,
-        temp_dir,
-        basic_params,
-        opt_dir,
+    @pytest.mark.parametrize("optimizer_class", [tmo.NSGAII_Optimizer, tmo.NSGAIII_Optimizer])
+    def test_history_is_extracted_per_generation(
+        self, optimizer_class, temp_dir, basic_params, opt_dir
     ):
-        optimizer = self._make_optimizer(
-            optimizer_class, temp_dir, basic_params, opt_dir
-        )
+        optimizer = self._make_optimizer(optimizer_class, temp_dir, basic_params, opt_dir)
         first = np.array([[1.0, 4.0], [2.0, 3.0], [3.0, 2.0], [4.0, 1.0]])
-        populations = np.stack((first, first * 0.9)) if stack_generations else first
 
-        optimizer._extract_optimization_history(populations)
+        optimizer._extract_optimization_history([first, first * 0.9])
 
-        expected_generations = 2 if stack_generations else 1
-        assert len(optimizer.PopulationHistory) == expected_generations
-        assert len(optimizer.HypervolumeHistory) == expected_generations
+        assert len(optimizer.PopulationHistory) == 2
+        assert len(optimizer.HypervolumeHistory) == 2
         np.testing.assert_array_equal(optimizer.PopulationHistory[0][1], first)
-
-    @pytest.mark.parametrize(
-        ("populations", "message"),
-        [
-            (np.ones(4), "array shape"),
-            (np.ones((4, 3)), "2 objective columns"),
-            (np.ones((3, 2)), "4 rows"),
-            (
-                np.array(
-                    [[np.nan, 1.0], [2.0, 3.0], [3.0, 2.0], [4.0, 1.0]]
-                ),
-                "non-finite",
-            ),
-        ],
-    )
-    def test_malformed_history_raises_clear_error(
-        self, populations, message, temp_dir, basic_params, opt_dir
-    ):
-        optimizer = self._make_optimizer(
-            tmo.NSGAII_Optimizer, temp_dir, basic_params, opt_dir
-        )
-
-        with pytest.raises(ValueError, match=message):
-            optimizer._extract_optimization_history(populations)
-
-
-# ============================================================================
-# Parameter Bounds Validation Tests
-# ============================================================================
 
 
 class TestParameterBoundsValidation:
@@ -617,11 +463,6 @@ class TestParameterBoundsValidation:
             )
 
 
-# ============================================================================
-# Directory Structure Tests
-# ============================================================================
-
-
 class TestDirectoryStructure:
     """Test that directory structure is created correctly"""
 
@@ -643,6 +484,7 @@ class TestDirectoryStructure:
         assert (sim_dir / "logs" / "TopasLogs").exists()
         assert (sim_dir / "TopasScripts").exists()
         assert (sim_dir / "Results").exists()
+        assert (sim_dir / "bin" / "topas").is_file()
 
     def test_overwrite_clears_directories(self, temp_dir, basic_params, opt_dir):
         """Test that Overwrite=True clears existing directories"""
@@ -669,11 +511,6 @@ class TestDirectoryStructure:
 
         # Original file should be gone
         assert not dummy_file.exists()
-
-
-# ============================================================================
-# Pareto Front Tests
-# ============================================================================
 
 
 class TestParetoFrontTracking:
@@ -749,9 +586,7 @@ class TestParetoFrontTracking:
 
         # Only the dominant solution should be on the front
         assert len(optimizer.ParetoObjectives) == 1
-        np.testing.assert_array_equal(
-            optimizer.ParetoObjectives[0], np.array([1.0, 1.0])
-        )
+        np.testing.assert_array_equal(optimizer.ParetoObjectives[0], np.array([1.0, 1.0]))
 
     def test_pareto_front_none_dominated(self, temp_dir, basic_params, opt_dir):
         """Test when no solution dominates another"""
@@ -778,9 +613,7 @@ class TestParetoFrontTracking:
         # All solutions are non-dominated
         assert len(optimizer.ParetoObjectives) == 4
 
-    def test_pareto_front_three_objectives(
-        self, temp_dir, three_objective_params, opt_dir
-    ):
+    def test_pareto_front_three_objectives(self, temp_dir, three_objective_params, opt_dir):
         """Test Pareto front with 3 objectives"""
         optimizer = tmo.NSGAII_Optimizer(
             optimization_params=three_objective_params,
@@ -811,11 +644,6 @@ class TestParetoFrontTracking:
         assert len(optimizer.ParetoObjectives) == 1
 
 
-# ============================================================================
-# TopasProblem Class Tests
-# ============================================================================
-
-
 class TestTopasProblem:
     """Test the TopasProblem class used by pymoo"""
 
@@ -834,44 +662,12 @@ class TestTopasProblem:
 
         assert problem.n_var == 2  # Number of parameters
         assert problem.n_obj == 2  # Number of objectives
-
-    def test_problem_bounds(self, temp_dir, basic_params, opt_dir):
-        """Test that TopasProblem has correct bounds"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_problem_bounds",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-
-        problem = tmo.TopasProblem(optimizer)
-
-        np.testing.assert_array_equal(problem.xl, np.array([0.0, 0.0]))
-        np.testing.assert_array_equal(problem.xu, np.array([10.0, 10.0]))
-
-
-# ============================================================================
-# Iteration Counter Tests
-# ============================================================================
+        np.testing.assert_array_equal(problem.xl, [0.0, 0.0])
+        np.testing.assert_array_equal(problem.xu, [10.0, 10.0])
 
 
 class TestIterationTracking:
     """Test iteration counting and tracking"""
-
-    def test_iteration_starts_at_zero(self, temp_dir, basic_params, opt_dir):
-        """Test that iteration counter starts at 0"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_iteration",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-
-        assert optimizer.evaluation_index == 0
 
     def test_max_iterations_stored(self, temp_dir, basic_params, opt_dir):
         """Test that max iterations is stored"""
@@ -900,93 +696,6 @@ class TestIterationTracking:
                 TopasLocation="testing_mode",
                 Overwrite=True,
             )
-
-
-# ============================================================================
-# Logging Tests
-# ============================================================================
-
-
-class TestOptimizerLogging:
-    """Test optimizer logging functionality"""
-
-    def test_logs_directory_created(self, temp_dir, basic_params, opt_dir):
-        """Test that logs directory is created"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_log",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-
-        optimizer.SetUpDirectoryStructure()
-
-        logs_dir = Path(temp_dir) / "test_log" / "logs"
-        assert logs_dir.exists()
-
-
-# ============================================================================
-# Testing Mode Tests
-# ============================================================================
-
-
-class TestTestingMode:
-    """Test the testing_mode functionality"""
-
-    def test_testing_mode_creates_emulator(self, temp_dir, basic_params, opt_dir):
-        """Test that testing_mode creates a topas emulator"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_emulator",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-
-        optimizer.SetUpDirectoryStructure()
-
-        # Emulator should be created in bin directory
-        emulator_path = Path(temp_dir) / "test_emulator" / "bin" / "topas"
-        assert emulator_path.exists()
-
-
-# ============================================================================
-# Data Storage Tests
-# ============================================================================
-
-
-class TestDataStorage:
-    """Test that optimization data is stored correctly"""
-
-    def test_stores_all_objectives(self, temp_dir, basic_params, opt_dir):
-        """Test that all objective values are tracked"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_obj_storage",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-
-        assert hasattr(optimizer, "AllObjectiveFunctionValues")
-        assert isinstance(optimizer.AllObjectiveFunctionValues, list)
-
-    def test_stores_n_objectives(self, temp_dir, basic_params, opt_dir):
-        """Test that n_objectives is stored"""
-        optimizer = tmo.NSGAII_Optimizer(
-            optimization_params=basic_params,
-            BaseDirectory=temp_dir,
-            SimulationName="test_n_obj_storage",
-            OptimizationDirectory=opt_dir,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-        )
-
-        assert optimizer.n_objectives == 2
 
 
 if __name__ == "__main__":

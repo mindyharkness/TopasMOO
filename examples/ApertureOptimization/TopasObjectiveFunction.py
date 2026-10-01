@@ -1,113 +1,44 @@
-"""
-This file contains the objective functions for the optimization.
-It is called by the Optimizer object, and receives the results of the Topas simulation.
-It returns a list of two objectives:
-1. Profile accuracy (lower is better - minimize error)
-2. Beam efficiency (lower return value = better efficiency)
-"""
+"""Dose objectives and a measured constraint, without reference data."""
 
-import os
 from pathlib import Path
 
 import numpy as np
-from TopasOpt.utilities import WaterTankData
+from topas2numpy import BinnedResult
 
-
-def CalculateProfileError(TopasResults, GroundTruthResults):
-    """
-    Calculate the RMS error between desired and actual profile and PDD.
-    Uses normalized values to account for different particle counts.
-
-    Returns the mean absolute error as a measure of profile accuracy.
-    Lower is better.
-    """
-    # Define points for profile extraction
-    Xpts = np.linspace(GroundTruthResults.x.min(), GroundTruthResults.x.max(), 100)
-    Ypts = np.zeros(Xpts.shape)
-    Zpts = GroundTruthResults.PhantomSizeZ * np.ones(Xpts.shape)
-
-    OriginalProfile = GroundTruthResults.ExtractDataFromDoseCube(Xpts, Ypts, Zpts)
-    OriginalProfileNorm = OriginalProfile * 100 / OriginalProfile.max()
-    CurrentProfile = TopasResults.ExtractDataFromDoseCube(Xpts, Ypts, Zpts)
-    CurrentProfileNorm = CurrentProfile * 100 / CurrentProfile.max()
-    ProfileDifference = OriginalProfileNorm - CurrentProfileNorm
-
-    # Define points for depth dose
-    Zpts = GroundTruthResults.z
-    Xpts = np.zeros(Zpts.shape)
-    Ypts = np.zeros(Zpts.shape)
-
-    OriginalDepthDose = GroundTruthResults.ExtractDataFromDoseCube(Xpts, Ypts, Zpts)
-    CurrentDepthDose = TopasResults.ExtractDataFromDoseCube(Xpts, Ypts, Zpts)
-    OriginalDepthDoseNorm = OriginalDepthDose * 100 / np.max(OriginalDepthDose)
-    CurrentDepthDoseNorm = CurrentDepthDose * 100 / np.max(CurrentDepthDose)
-    DepthDoseDifference = OriginalDepthDoseNorm - CurrentDepthDoseNorm
-
-    ProfileError = np.mean(abs(ProfileDifference)) + np.mean(abs(DepthDoseDifference))
-    return ProfileError
-
-
-def CalculateBeamEfficiency(TopasResults):
-    """
-    Calculate beam efficiency as a measure of how many particles pass through
-    the collimator. We use the maximum dose as a proxy for particle transmission.
-
-    We want to maximize efficiency, but since optimizers minimize, we return
-    the negative of efficiency (or equivalently, return 1/efficiency).
-
-    Lower return value = better efficiency.
-    """
-    # Simple efficiency metric: negative of peak dose
-    # Higher peak dose = more particles transmitted = better efficiency
-    peak_dose = np.max(TopasResults.DoseCube)
-
-    # Return negative so minimization favors higher peak dose
-    efficiency_objective = -peak_dose
-
-    return efficiency_objective
+# Demonstration settings, to be checked with adequate Monte Carlo statistics.
+OFF_AXIS_RADIUS_MM = 20.0
+MAX_OFF_AXIS_FRACTION = 0.80
 
 
 def TopasObjectiveFunction(ResultsLocation, iteration):
+    """Return [off-axis peak dose, -peak dose, off-axis/peak - limit].
+
+    Both doses are scorer sums in pGy for the fixed source-history and phase-space
+    reuse settings in GenerateTopasScripts.py. Off-axis means voxel centers at
+    least OFF_AXIS_RADIUS_MM from the beam axis, across all phantom depths.
+    The last value is a measured constraint: g <= 0 is feasible.
     """
-    Multi-objective function for aperture optimization.
+    result = BinnedResult(str(Path(ResultsLocation) / f"WaterTank_itt_{iteration}.bin"))
+    dose = np.asarray(result.data["Sum"], dtype=float)
 
-    Returns a list of two objectives:
-    1. Profile accuracy (lower is better - minimize error)
-    2. Beam efficiency (lower return value = better efficiency)
+    # Use pGy rather than tiny Gy values so MOBO can standardize the objectives.
+    dose = dose * 1e12
 
-    :param ResultsLocation: Path to results directory
-    :param iteration: Current iteration number
-    :return: List of objective values [profile_error, efficiency_objective]
-    """
-
-    ResultsFile = ResultsLocation / f"WaterTank_itt_{iteration}.bin"
-    path, file = os.path.split(ResultsFile)
-    CurrentResults = WaterTankData(path, file)
-
-    # Load ground truth data
-    # Update this path to point to your ground truth data
-    GroundTruthDataPath = str(
-        Path(__file__).parent.parent.parent
-        / "TopasOpt-master"
-        / "docsrc"
-        / "_resources"
-        / "ApertureOpt"
-        / "Results"
-    )
-    GroundTruthDataFile = "WaterTank"
-
-    # If ground truth doesn't exist, create a simple target
-    try:
-        GroundTruthResults = WaterTankData(GroundTruthDataPath, GroundTruthDataFile)
-    except Exception:
-        # Fallback: use current results as "ground truth" for testing
-        print("Warning: Could not load ground truth data. Using simplified objectives.")
-        # In this case, just use dose-based objectives
-        GroundTruthResults = CurrentResults
-
-    # Calculate objectives
-    objective1_profile_error = CalculateProfileError(CurrentResults, GroundTruthResults)
-    objective2_efficiency = CalculateBeamEfficiency(CurrentResults)
-
-    # Return as list (TopasMOO requirement)
-    return [objective1_profile_error, objective2_efficiency]
+    # topas2numpy coordinates start at the box edge, in cm. Center them on
+    # the beam axis and convert to mm; the phantom is centered at x=y=0.
+    coordinates = []
+    for dim in result.dimensions[:2]:
+        if dim.unit != "cm":
+            raise ValueError("Expected scorer coordinates in cm.")
+        coordinates.append(10 * (dim.get_bin_centers() - dim.n_bins * dim.bin_width / 2))
+    x, y = coordinates
+    off_axis = np.hypot(x[:, None], y[None, :]) >= OFF_AXIS_RADIUS_MM
+    if not off_axis.any() or off_axis.all():
+        raise ValueError("The scorer must contain both on-axis and off-axis voxels.")
+    if not np.isfinite(dose).all():
+        raise ValueError("Scored dose contains NaN or inf values.")
+    peak_dose = float(dose.max())
+    if peak_dose <= 0:
+        raise ValueError("No dose was scored; off-axis/peak is undefined.")
+    off_axis_peak = float(dose[off_axis].max())
+    return [off_axis_peak, -peak_dose, off_axis_peak / peak_dose - MAX_OFF_AXIS_FRACTION]

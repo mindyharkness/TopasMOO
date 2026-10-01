@@ -9,6 +9,8 @@ from typing import Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 from pymoo.indicators.hv import HV
+from pymoo.indicators.igd import IGD
+from pymoo.problems import get_problem
 
 from TopasMOO.plotting.style import (
     ACCENT_COLOR,
@@ -41,19 +43,12 @@ class ValidationSummary:
 
 def compute_true_pareto_front(n_points: int = 1000) -> np.ndarray:
     """Return evenly sampled points on the analytical ZDT1 Pareto front."""
-    f1 = np.linspace(0.0, 1.0, n_points)
-    return np.column_stack((f1, 1.0 - np.sqrt(f1)))
-
-
-def _pairwise_euclidean(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    differences = a[:, None, :] - b[None, :, :]
-    return np.sqrt(np.sum(differences**2, axis=-1))
+    return get_problem("zdt1").pareto_front(n_pareto_points=n_points)
 
 
 def compute_igd(obtained_front: np.ndarray, true_front: np.ndarray) -> float:
     """Return inverted generational distance; lower values are better."""
-    distances = _pairwise_euclidean(true_front, obtained_front)
-    return float(np.min(distances, axis=1).mean())
+    return float(IGD(true_front)(obtained_front))
 
 
 def _validated_inputs(results, hypervolume_reference):

@@ -27,7 +27,6 @@ conventions is centralized in ``MOBOOptimizer._to_botorch_objectives`` and
 from __future__ import annotations
 
 import itertools
-import json
 import logging
 import os
 import time
@@ -43,7 +42,6 @@ from .exceptions import InvalidParameterError
 from .io import LogParetoFrontToFile
 from .metrics import hypervolume_reference_point
 from .optimizers import TopasMOOBaseClass
-from .utilities import _tensor_to_float
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +60,8 @@ def _require_botorch():
         from botorch.acquisition.multi_objective.logei import (
             qLogNoisyExpectedHypervolumeImprovement,
         )
+        from botorch.acquisition.multi_objective.objective import IdentityMCMultiOutputObjective
+        from botorch.acquisition.multi_objective.parego import qLogNParEGO
         from botorch.fit import fit_gpytorch_mll
         from botorch.models.gp_regression import SingleTaskGP
         from botorch.models.model_list_gp_regression import ModelListGP
@@ -80,24 +80,11 @@ def _require_botorch():
             "(or `pip install TopasMOO[mobo]`)."
         ) from exc
 
-    # qLogNParEGO may live in slightly different modules across BoTorch versions.
-    qLogNParEGO = None
-    try:
-        from botorch.acquisition.multi_objective.parego import qLogNParEGO as _parego
-
-        qLogNParEGO = _parego
-    except ImportError:
-        try:
-            from botorch.acquisition.multi_objective import qLogNParEGO as _parego
-
-            qLogNParEGO = _parego
-        except ImportError:
-            qLogNParEGO = None
-
     return {
         "torch": torch,
         "qLogNoisyExpectedHypervolumeImprovement": qLogNoisyExpectedHypervolumeImprovement,
         "qLogNParEGO": qLogNParEGO,
+        "IdentityMCMultiOutputObjective": IdentityMCMultiOutputObjective,
         "fit_gpytorch_mll": fit_gpytorch_mll,
         "SingleTaskGP": SingleTaskGP,
         "ModelListGP": ModelListGP,
@@ -145,6 +132,7 @@ def build_acquisition(
     sampler,
     scalarization_weights=None,
     X_pending=None,
+    n_constraints=0,
     bt=None,
 ):
     """Build multi-objective acquisition objects.
@@ -152,9 +140,9 @@ def build_acquisition(
     GP fitting, ``optimize_acqf``, checkpointing, and logging are intentionally
     outside this function, so acquisition choice does not touch that code.
 
-    Constraints are not applied here: TopasMOO enforces feasibility with
-    ``decision_constraints`` during ``optimize_acqf``, so the model's outputs
-    are exactly the objectives and BoTorch's default identity objective applies.
+    Model outputs are maximization objectives followed by measured constraints
+    (``g <= 0`` feasible). Analytical decision constraints are applied separately
+    during ``optimize_acqf``.
 
     :param name: ``"qlognehvi"`` or ``"qlognparego"``.
     :param model: Fitted ``ModelListGP``.
@@ -165,12 +153,18 @@ def build_acquisition(
         BoTorch samples once from the unit simplex. Callers that need
         per-candidate redraws should pass a fresh weight vector each time.
     :param X_pending: Pending points (ParEGO sequential batches).
+    :param n_constraints: Number of trailing measured constraint outputs.
     :param bt: Already-imported BoTorch symbol table from
         :func:`_require_botorch`; imported on demand when omitted.
     """
     if bt is None:
         bt = _require_botorch()
     key = name.lower()
+    n_objectives = model.num_outputs - n_constraints
+    outcome_kwargs = {
+        "objective": bt["IdentityMCMultiOutputObjective"](outcomes=list(range(n_objectives))),
+        "constraints": [lambda samples, j=j: samples[..., j] for j in range(n_objectives, model.num_outputs)],
+    } if n_constraints else {}
 
     if key == "qlognehvi":
         kwargs: dict[str, Any] = {
@@ -179,99 +173,25 @@ def build_acquisition(
             "X_baseline": train_X,
             "sampler": sampler,
             "prune_baseline": True,
+            **outcome_kwargs,
         }
         return bt["qLogNoisyExpectedHypervolumeImprovement"](**kwargs)
 
     if key == "qlognparego":
-        cls = bt["qLogNParEGO"]
-        if cls is None:
-            raise ImportError(
-                "qLogNParEGO is not available in this BoTorch install. "
-                "Upgrade botorch or select acquisition='qlognehvi'."
-            )
         kwargs = {
             "model": model,
             "X_baseline": train_X,
             "sampler": sampler,
             "prune_baseline": True,
+            **outcome_kwargs,
         }
         if scalarization_weights is not None:
             kwargs["scalarization_weights"] = scalarization_weights
         if X_pending is not None:
             kwargs["X_pending"] = X_pending
-        return cls(**kwargs)
+        return bt["qLogNParEGO"](**kwargs)
 
-    # we only support these two acq functions
     raise InvalidParameterError(f"Unknown acquisition {name!r}.")
-
-
-def propagate_objective_variance(
-    values: Sequence[float],
-    raw_variances: Sequence[float],
-    *,
-    jacobian: Sequence[Sequence[float]] | np.ndarray | None = None,
-    covariance: Sequence[Sequence[float]] | np.ndarray | None = None,
-    independence: bool = True,
-) -> np.ndarray:
-    """Propagate scorer uncertainty through an objective transformation.
-
-    For raw scored quantities ``z`` and objectives ``f(z)``, first-order
-    propagation is ``Cov[f] ≈ J Cov[z] Jᵀ``, where ``J`` is the Jacobian of
-    ``f`` evaluated at ``values``. With no ``jacobian``, the identity mapping is
-    assumed and the variances are returned unchanged.
-
-    The default assumes independent scored quantities and constructs
-    ``Cov[z]`` from ``raw_variances``. Set ``independence=False`` and provide a
-    full covariance matrix when cross terms matter.
-
-    :param values: Raw scored means at which ``jacobian`` was evaluated.
-    :param raw_variances: Per-scorer variances.
-    :param jacobian: Optional array with shape ``(n_objectives, n_scorers)``.
-    :param covariance: Full scorer covariance, required when
-        ``independence=False``.
-    :param independence: Whether scorer covariance is diagonal.
-    :returns: Propagated objective variances as a 1-D float array.
-    """
-    means = np.asarray(values, dtype=float).reshape(-1)
-    var = np.asarray(raw_variances, dtype=float).reshape(-1)
-    if means.shape != var.shape:
-        raise ValueError(
-            f"values and raw_variances must have the same shape. Got {means.shape} and {var.shape}."
-        )
-    if not np.all(np.isfinite(means)):
-        raise ValueError(f"values must be finite. Got {values!r}.")
-    if not np.all(np.isfinite(var)) or np.any(var < 0):
-        raise ValueError(f"raw_variances must be finite and non-negative. Got {raw_variances!r}.")
-
-    if jacobian is None:
-        J = np.eye(len(means), dtype=float)
-    else:
-        J = np.atleast_2d(np.asarray(jacobian, dtype=float))
-        if J.shape[1] != len(means) or not np.all(np.isfinite(J)):
-            raise ValueError(
-                f"jacobian must be finite with shape (n_objectives, {len(means)}). Got {J.shape}."
-            )
-
-    if independence:
-        cov = np.diag(var)
-    else:
-        if covariance is None:
-            raise NotImplementedError(
-                "independence=False requires a full scorer covariance matrix."
-            )
-        cov = np.asarray(covariance, dtype=float)
-        if cov.shape != (len(means), len(means)) or not np.all(np.isfinite(cov)):
-            raise ValueError(
-                "covariance must be finite with shape "
-                f"({len(means)}, {len(means)}). Got {cov.shape}."
-            )
-        if not np.allclose(cov, cov.T):
-            raise ValueError("covariance must be symmetric.")
-
-    propagated = np.diag(J @ cov @ J.T)
-    if np.any(propagated < -1e-12):
-        raise ValueError("Propagated covariance has negative diagonal entries.")
-    return np.maximum(propagated, 0.0)
 
 
 class MOBOOptimizer(TopasMOOBaseClass):
@@ -315,9 +235,10 @@ class MOBOOptimizer(TopasMOOBaseClass):
         warning. Pass ``None`` to request inferred homoskedastic noise.
     :param use_mc_uncertainty: If True, attempt to use Monte Carlo scorer
         variances as ``train_Yvar`` (opt-in research feature; default False).
-    :param objective_fn: Optional callable ``(X: ndarray (n,d)) -> Y (n,m)`` for
+    :param objective_fn: Optional callable ``(X: ndarray (n,d)) -> Y (n,m+k)`` for
         synthetic / benchmark loops that bypass TOPAS ``EvaluateObjectives``.
-        Returned objectives must be minimized, matching the base-class contract.
+        Return objectives first (minimized), then ``n_constraints`` values
+        (``g <= 0`` feasible), matching the base-class contract.
     :param include_start_point: If True (default, matching ``NSGAII_Optimizer``),
         the user's ``start_point`` replaces the first row of the initial design
         so a known-good configuration is actually evaluated. Skipped with a
@@ -329,13 +250,13 @@ class MOBOOptimizer(TopasMOOBaseClass):
         Internally negated for BoTorch's ``callable(x) >= 0`` form.
     :param **kwds: Forwarded to ``TopasMOOBaseClass``.
 
-    Constraints are expressed as ``decision_constraints``: analytical
-    ``g(x) <= 0`` on the decision vector, enforced during acquisition
-    optimization so infeasible designs are never proposed and no TOPAS run is
-    spent on them. Use them to restrict which simulation parameters are
-    allowed. The base class's ``n_constraints`` (measured constraint values
-    modeled as extra GP outcomes) applies to ``NSGAII_Optimizer`` only, and
-    ``MOBOOptimizer`` rejects it.
+    ``n_constraints`` shares the NSGA-II/III API: ``TopasObjectiveFunction``
+    returns objectives followed by measured constraints (``g <= 0`` feasible).
+    Each constraint is modeled by a GP with inferred noise and used by both
+    acquisitions; infeasible evaluations can occur while learning feasibility.
+    Objective variances remain objective-only. Optional ``decision_constraints``
+    restrict allowed inputs analytically before simulation and can be combined
+    with measured constraints.
     """
 
     def __init__(
@@ -380,26 +301,12 @@ class MOBOOptimizer(TopasMOOBaseClass):
         self._variance_cache: dict[tuple[float, ...], np.ndarray] = {}
         # Memoized TopasObjectiveVariances lookup; see _objective_variance_callable.
         self._variance_fn: Any = _UNRESOLVED
-        self.results_metadata: dict[str, Any] = {}
 
         # Base class needs directories/params before we know d for n_init default.
         super().__init__(**kwds)
 
         if self._objective_fn is not None and not callable(self._objective_fn):
             raise InvalidParameterError("objective_fn must be callable when supplied.")
-        if self.n_constraints > 0:
-            # n_constraints is a base-class feature for NSGAII_Optimizer, which
-            # hands it to pymoo as n_ieq_constr. MOBO does not model measured
-            # constraint values as GP outcomes; rejecting is better than
-            # silently dropping constraints the caller believes are enforced.
-            raise InvalidParameterError(
-                f"MOBOOptimizer does not support n_constraints (got "
-                f"{self.n_constraints}). Express feasibility analytically with "
-                "decision_constraints=[g, ...] (g(x) <= 0 feasible), which is "
-                "enforced during acquisition optimization so infeasible designs "
-                "are never proposed. n_constraints remains available on "
-                "NSGAII_Optimizer."
-            )
         if any(not callable(g) for g in self._decision_constraints):
             raise InvalidParameterError("Every decision_constraints entry must be callable.")
 
@@ -464,6 +371,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
         self._bounds_tensor = None
         self.train_X: np.ndarray | None = None  # (n, d) minimization / decision space
         self.train_Y: np.ndarray | None = None  # (n, m) TopasMOO minimize space
+        self.train_G: np.ndarray | None = None  # (n, k), g <= 0 feasible
 
         self.train_failed: np.ndarray | None = None
         self.train_Yvar: np.ndarray | None = self._constructor_train_Yvar
@@ -471,6 +379,8 @@ class MOBOOptimizer(TopasMOOBaseClass):
         self._nd_front_cache: dict[int, np.ndarray] = {}
 
         self._feasible_cache: np.ndarray | None = None
+        # Feasibility of evaluated-but-untold designs, by cache key; see _eligible_rows.
+        self._inflight_feasible: dict = {}
         self._mc_uncertainty_fallback = False
 
         self._hv_ref_fixed: np.ndarray | None = None
@@ -483,8 +393,6 @@ class MOBOOptimizer(TopasMOOBaseClass):
         self._pending_gp_predictions: np.ndarray | None = None
         self._batch_index = 0
         self._n_batches_target = int(self.n_generations)
-        self._mobo_checkpoint_loc = None  # set after dirs exist
-        self._meta_written = False
         self.model = None
         self.res = None
 
@@ -502,11 +410,6 @@ class MOBOOptimizer(TopasMOOBaseClass):
     def _from_botorch_objectives(Y_max: np.ndarray) -> np.ndarray:
         """Maximization (BoTorch) → minimization (TopasMOO)."""
         return -np.asarray(Y_max, dtype=float)
-
-    @staticmethod
-    def _to_botorch_variance(Yvar_min: np.ndarray) -> np.ndarray:
-        """Variance is invariant under Y → -Y."""
-        return np.asarray(Yvar_min, dtype=float)
 
     # BoTorch helpers
 
@@ -539,34 +442,28 @@ class MOBOOptimizer(TopasMOOBaseClass):
 
         model.eval()
         with torch.no_grad():
-            mean_max = model.posterior(self._torch_X(X)).mean
+            mean_max = model.posterior(self._torch_X(X)).mean[..., : self.n_objectives]
         mean_min = self._from_botorch_objectives(mean_max.detach().cpu().numpy())
         return np.asarray(mean_min, dtype=float).reshape(-1, self.n_objectives)
 
     def _fall_back_to_inferred_noise(self, reason: str, stacklevel: int = 3) -> None:
         """Abandon supplied observation variances for the rest of the run.
 
-        The decision is recorded in two places -- the flag that gates
-        ``_fit_model`` and the ``results_metadata`` entry that reaches the
-        checkpoint and the run report -- so every path that gives up on
-        ``train_Yvar`` goes through here rather than setting them separately.
+        Every path that gives up on ``train_Yvar`` goes through here, so the
+        checkpointed ``_mc_uncertainty_fallback`` flag is always set with it.
         """
         warnings.warn(reason, UserWarning, stacklevel=stacklevel)
         self._mc_uncertainty_fallback = True
-        self.results_metadata["mc_uncertainty_fallback"] = True
         self.train_Yvar = None
 
     def _mobo_ckpt_path(self) -> str:
-        if self._mobo_checkpoint_loc is None:
-            log_dir = Path(self.BaseDirectory) / self.SimulationName / "logs"
-            self._mobo_checkpoint_loc = str(log_dir / "MOBOCheckpoint.npz")
-        return self._mobo_checkpoint_loc
+        return str(Path(self.BaseDirectory) / self.SimulationName / "logs" / "MOBOCheckpoint.npz")
 
     # Constraints (g(x) <= 0 feasible, pymoo/TopasMOO convention)
 
     def _has_constraints(self) -> bool:
-        """Whether any decision constraint is configured."""
-        return bool(self._decision_constraints)
+        """Whether any analytical or measured constraint is configured."""
+        return bool(self._decision_constraints) or self.n_constraints > 0
 
     @staticmethod
     def _constraint_scalar(value: Any, source: str) -> float:
@@ -583,8 +480,10 @@ class MOBOOptimizer(TopasMOOBaseClass):
             )
         return float(arr.reshape(-1)[0])
 
-    def _observed_feasible_mask(self, X: np.ndarray, Y: np.ndarray) -> np.ndarray:
-        """Return decision-constraint feasibility for a validated observation prefix."""
+    def _observed_feasible_mask(
+        self, X: np.ndarray, Y: np.ndarray, G: np.ndarray | None = None
+    ) -> np.ndarray:
+        """Return feasibility under analytical and measured constraints."""
         X = np.asarray(X, dtype=float)
         Y = np.asarray(Y, dtype=float)
         n = len(Y)
@@ -597,6 +496,10 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 "Objective observations are missing, non-finite, or desynchronized."
             )
         mask = np.ones(n, dtype=bool)
+        if self.n_constraints:
+            if G is None or np.shape(G) != (n, self.n_constraints) or not np.all(np.isfinite(G)):
+                raise InvalidParameterError("Constraint observations are missing, non-finite, or desynchronized.")
+            mask &= np.all(np.asarray(G) <= 0, axis=1)
         if self._decision_constraints:
             torch = self._ensure_botorch()["torch"]
             for i, x in enumerate(X):
@@ -612,9 +515,9 @@ class MOBOOptimizer(TopasMOOBaseClass):
         return mask
 
     def feasible_mask(self) -> np.ndarray:
-        """Mask observations satisfying every ``decision_constraints`` entry (``g <= 0``).
+        """Mask observations satisfying all analytical and measured constraints.
 
-        All-``True`` when no decision constraints are configured. Missing or
+        All-``True`` when no constraints are configured. Missing or
         desynchronized observations raise instead of treating unknown
         feasibility as true.
 
@@ -636,10 +539,11 @@ class MOBOOptimizer(TopasMOOBaseClass):
             new_rows = self._observed_feasible_mask(
                 self.train_X[start:],
                 self.train_Y[start:],
+                None if self.train_G is None else self.train_G[start:],
             )
             mask = np.concatenate([cached, new_rows])
         else:
-            mask = self._observed_feasible_mask(self.train_X, self.train_Y)
+            mask = self._observed_feasible_mask(self.train_X, self.train_Y, self.train_G)
         self._feasible_cache = mask
         return mask
 
@@ -682,17 +586,27 @@ class MOBOOptimizer(TopasMOOBaseClass):
         ``train_Y`` grows once per *batch*, so this is asked about rows that
         have not been told yet. The two answers are sourced accordingly.
         """
-        mask = np.ones(n_rows, dtype=bool)
-        # Failure is looked up per design
-        for i in range(min(n_rows, len(self.AllDecisionVariables))):
-            if self._eval_failed.get(self._cache_key(self.AllDecisionVariables[i]), False):
-                mask[i] = False
-        # Constraint feasibility is positional, and a design's constraint values
-        # only reach the optimizer at tell(). Apply it only when the two
-        # histories are known to be row-aligned, which tell() guarantees, since
-        # _update_pareto_attrs rewrites AllObjectiveFunctionValues from train_Y.
-        if self.train_Y is not None and n_rows == len(self.train_Y):
-            mask &= self.eligible_mask()
+        mask = np.zeros(n_rows, dtype=bool)
+        committed = 0 if self.train_Y is None else min(n_rows, len(self.train_Y))
+        mask[:committed] = self.eligible_mask()[:committed]
+        # tell() aligns the committed prefix. Additional TOPAS evaluations have
+        # already reached the raw cache, even while their batch is in progress.
+        for i in range(committed, min(n_rows, len(self.AllDecisionVariables))):
+            x = self.AllDecisionVariables[i]
+            key = self._cache_key(x)
+            raw = self._eval_cache.get(key)
+            if raw is None or self._eval_failed.get(key, False):
+                continue
+            # Cached so each running-front refresh doesn't re-run every user
+            # constraint over the whole in-flight batch.
+            if key not in self._inflight_feasible:
+                raw = np.asarray(raw, dtype=float).reshape(1, -1)
+                self._inflight_feasible[key] = self._observed_feasible_mask(
+                    np.asarray(x).reshape(1, -1),
+                    raw[:, : self.n_objectives],
+                    raw[:, self.n_objectives :],
+                )[0]
+            mask[i] = self._inflight_feasible[key]
         return mask
 
     def _gp_training_rows(self) -> np.ndarray:
@@ -702,30 +616,19 @@ class MOBOOptimizer(TopasMOOBaseClass):
         would dominate ``Standardize``'s mean/std and flatten the posterior over
         the region that actually matters. Failures are therefore dropped from the
         training set (the base-class evaluation cache still prevents TOPAS from
-        re-running them). If fewer than two usable rows remain, every row is kept
-        so the run continues instead of dying on an unfittable model.
+        re-running them). Successful but infeasible observations are retained.
         """
         assert self.train_Y is not None
         n = len(self.train_Y)
-        keep = np.where(~self._failed_prefix(n))[0]
-        if len(keep) < 2:
-            if n and len(keep) < n:
-                warnings.warn(
-                    f"{n - len(keep)} of {n} observations are failed evaluations; "
-                    "too few usable rows remain to fit the GP on successes alone, "
-                    "so the penalized rows are being included. Expect a poor "
-                    "surrogate until real evaluations succeed.",
-                    UserWarning,
-                    stacklevel=3,
-                )
-            return np.arange(n)
-        return keep
+        return np.where(~self._failed_prefix(n))[0]
 
     def _fit_model(self):
         bt = self._ensure_botorch()
         torch = bt["torch"]
         assert self.train_X is not None and self.train_Y is not None
         rows = self._gp_training_rows()
+        if len(rows) < 2:
+            raise RuntimeError("MOBO requires at least two successful evaluations to fit a GP.")
         train_X = self._torch_X(np.asarray(self.train_X)[rows])
         train_Y = self._torch_Y_botorch(np.asarray(self.train_Y)[rows])
         d = train_X.shape[-1]
@@ -746,7 +649,8 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 )
             else:
                 train_Yvar = torch.as_tensor(
-                    self._to_botorch_variance(np.asarray(self.train_Yvar)[rows]),
+                    # Variance is invariant under the Y -> -Y maximization flip.
+                    np.asarray(self.train_Yvar, dtype=float)[rows],
                     dtype=torch.double,
                 )
 
@@ -759,12 +663,16 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 outcome_transform=bt["Standardize"](m=1),
             )
 
-        # One GP per objective; the model's only outputs are the objectives, so
-        # BoTorch's default identity objective is already correct downstream.
+        # One GP per objective, followed by one per measured constraint. Only
+        # objectives change sign; constraint posterior samples stay g <= 0.
         models = []
         for j in range(m):
             yvar_j = None if train_Yvar is None else train_Yvar[:, j : j + 1]
             models.append(_gp(train_Y[:, j : j + 1], yvar_j))
+        if self.n_constraints:
+            train_G = torch.as_tensor(self.train_G[rows], dtype=torch.double)
+            for j in range(self.n_constraints):
+                models.append(_gp(train_G[:, j : j + 1]))
 
         model = bt["ModelListGP"](*models)
         mll = bt["SumMarginalLogLikelihood"](model.likelihood, model)
@@ -791,7 +699,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
         region the acquisition is not allowed to exploit, and a penalized
         failure carries ``failure_penalty`` in every objective which would
         push the reference out by orders of magnitude.  Falls back to all
-        observations while nothing eligible exists yet.
+        successful observations while nothing eligible exists yet.
         """
         bt = self._ensure_botorch()
         torch = bt["torch"]
@@ -800,6 +708,8 @@ class MOBOOptimizer(TopasMOOBaseClass):
         eligible = self.eligible_mask()
         if eligible.any():
             Y_ref_src = Y_ref_src[eligible]
+        else:
+            Y_ref_src = Y_ref_src[self._gp_training_rows()]
         Y_max = torch.as_tensor(self._to_botorch_objectives(Y_ref_src), dtype=torch.double)
 
         if self._user_ref_point_min is not None:
@@ -1111,10 +1021,12 @@ class MOBOOptimizer(TopasMOOBaseClass):
             "train_Y": np.asarray(self.train_Y, dtype=float)
             if self.train_Y is not None
             else np.zeros((0, 0)),
+            "train_G": np.asarray(self.train_G, dtype=float)
+            if self.train_G is not None
+            else np.zeros((0, self.n_constraints)),
             "HypervolumeHistory": np.asarray(self.HypervolumeHistory, dtype=float),
             "batch_index": np.asarray([self._batch_index]),
             "mc_uncertainty_fallback": np.asarray([int(self._mc_uncertainty_fallback)]),
-            "results_metadata_json": np.asarray(json.dumps(self.results_metadata)),
         }
         if self._hv_ref_fixed is not None:
             payload["hv_ref_fixed"] = np.asarray(self._hv_ref_fixed, dtype=float)
@@ -1154,22 +1066,6 @@ class MOBOOptimizer(TopasMOOBaseClass):
         checkpoint_tmp = path + ".tmp.npz"
         np.savez_compressed(checkpoint_tmp, **payload)
         os.replace(checkpoint_tmp, path)
-
-        if not self._meta_written:
-            meta = {
-                "batch_size": self.batch_size,
-                "n_init": self.n_init,
-                "acquisition": self._acquisition_resolved,
-                "seed": self.seed,
-                "n_objectives": self.n_objectives,
-                "parameter_names": list(self.ParameterNames),
-            }
-            meta_path = path + ".meta.json"
-            meta_tmp = meta_path + ".tmp"
-            with open(meta_tmp, "w", encoding="utf-8") as f:
-                json.dump(meta, f, indent=2)
-            os.replace(meta_tmp, meta_path)
-            self._meta_written = True
 
     def _validate_checkpoint_problem(
         self,
@@ -1223,6 +1119,11 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 "MOBO checkpoint train_X/train_Y shapes or values are "
                 "incompatible with the current problem."
             )
+        n = len(X)
+        # Legacy checkpoints predate measured constraints and are unconstrained.
+        G = arrays.setdefault("train_G", np.empty((n, 0)))
+        if G.shape != (n, self.n_constraints) or not np.all(np.isfinite(G)):
+            raise InvalidParameterError("MOBO checkpoint train_G shapes or values are incompatible.")
 
     def _decode_population_history(
         self,
@@ -1300,9 +1201,11 @@ class MOBOOptimizer(TopasMOOBaseClass):
 
         self.train_X = np.asarray(arrays["train_X"], dtype=float)
         self.train_Y = np.asarray(arrays["train_Y"], dtype=float)
+        self.train_G = np.asarray(arrays["train_G"], dtype=float)
         if self.train_X.size == 0:
             self.train_X = None
             self.train_Y = None
+            self.train_G = None
         if self.train_Y is None:
             self.gp_prediction_history = None
         elif "gp_prediction_history" in arrays:
@@ -1326,15 +1229,6 @@ class MOBOOptimizer(TopasMOOBaseClass):
         ]
         self._batch_index = int(arrays["batch_index"][0])
         self._mc_uncertainty_fallback = bool(arrays["mc_uncertainty_fallback"][0])
-        if "results_metadata_json" in arrays:
-            try:
-                restored_metadata = json.loads(str(arrays["results_metadata_json"].item()))
-                if isinstance(restored_metadata, dict):
-                    self.results_metadata = restored_metadata
-            except (json.JSONDecodeError, TypeError, ValueError):
-                logger.warning("Ignoring malformed results_metadata in checkpoint.")
-        if self._mc_uncertainty_fallback:
-            self.results_metadata["mc_uncertainty_fallback"] = True
 
         self._nd_front_cache = {}
         # The history was just replaced rather than appended to.
@@ -1439,7 +1333,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 if self._user_ref_point_min is not None:
                     self._hv_ref_fixed = self._user_ref_point_min.copy()
                 else:
-                    feasible = self.feasible_mask()
+                    feasible = self.eligible_mask()
                     if feasible.any():
                         self._hv_ref_fixed = self._reference_from_objectives(self.train_Y[feasible])
             if self._hv_ref_fixed is not None and (
@@ -1510,7 +1404,9 @@ class MOBOOptimizer(TopasMOOBaseClass):
         ``decision_constraints`` are set, since a Sobol design gives no
         feasibility guarantee. Unless ``include_start_point=False``, the first
         row is replaced by the user's ``start_point``. After initialization,
-        returns ``batch_size`` candidates from acquisition optimization.
+        returns ``batch_size`` candidates from acquisition optimization. With
+        fewer than two successful observations, draws another initial-design
+        batch instead; ``run`` counts these against its normal batch budget.
         """
         self.SetUpDirectoryStructure()
         bt = self._ensure_botorch()
@@ -1522,14 +1418,18 @@ class MOBOOptimizer(TopasMOOBaseClass):
             # a batch boundary matches an uninterrupted run.
             torch.manual_seed(self.seed + 104_729 * self._batch_index)
 
-        if self.train_X is None or len(self.train_X) == 0:
-            n = self.n_init
+        initial = self.train_X is None or len(self.train_X) == 0
+        if initial or len(self._gp_training_rows()) < 2:
+            n = self.n_init if initial else self.batch_size
+            sample_seed = None if self.seed is None else self.seed + 104_729 * self._batch_index
+            if not initial:
+                logger.warning("Fewer than two successful evaluations; using this batch for additional initial sampling.")
             if self._decision_constraints:
                 # A Sobol design gives no feasibility guarantee, so fall back to
                 # uniform rejection sampling inside the feasible region.
                 X = self._rejection_sample_feasible(
                     n,
-                    np.random.default_rng(self.seed),
+                    np.random.default_rng(sample_seed),
                     "initial design points",
                 )
             else:
@@ -1537,11 +1437,11 @@ class MOBOOptimizer(TopasMOOBaseClass):
                     bounds=self._bounds_tensor,
                     n=1,
                     q=n,
-                    seed=self.seed,
+                    seed=sample_seed,
                 )
                 # draw_sobol_samples → shape (n=1, q=n_init, d) for recent BoTorch
                 X = samples.squeeze(0).detach().cpu().numpy()
-            X = self._inject_start_point(np.asarray(X, dtype=float))
+            X = self._inject_start_point(np.asarray(X, dtype=float)) if initial else X
             self._pending_X = np.asarray(X, dtype=float)
             self._pending_gp_predictions = np.full(
                 (len(self._pending_X), self.n_objectives), np.nan
@@ -1592,6 +1492,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
                     sampler=sampler,
                     scalarization_weights=weights,
                     X_pending=pending,
+                    n_constraints=self.n_constraints,
                     bt=bt,
                 )
                 cand = self._optimize_acqf(
@@ -1607,6 +1508,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 train_X,
                 ref_point=ref,
                 sampler=sampler,
+                n_constraints=self.n_constraints,
                 bt=bt,
             )
             candidates = self._optimize_acqf(
@@ -1632,7 +1534,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
         logger.info(
             "batch=%s hypervolume=%s n_pareto=%s gp_fit_s=%s acqf_opt_s=%s",
             self._batch_index,
-            _tensor_to_float(hv) if hv == hv else hv,
+            hv,
             n_pareto,
             f"{fit_s:.4f}",
             f"{acqf_s:.4f}",
@@ -1671,9 +1573,12 @@ class MOBOOptimizer(TopasMOOBaseClass):
         Yvar: np.ndarray | None = None,
         failed: np.ndarray | None = None,
     ) -> None:
-        """Incorporate observations ``X`` ``(n, d)``, ``Y`` ``(n, m)`` (minimize).
+        """Incorporate ``X`` ``(n, d)`` and ``Y`` ``(n, m+k)`` observations.
 
-        :param Yvar: Optional observation variance in minimization space.
+        :param Y: Minimized objectives first, then ``n_constraints`` measured
+            values (``g <= 0`` feasible), as in ``TopasObjectiveFunction``.
+        :param Yvar: Optional objective-only observation variance ``(n, m)``.
+            Constraint noise is inferred by the GPs.
         :param failed: Optional ``(n,)`` boolean mask marking rows whose
             objective values are the ``failure_penalty`` sentinel rather than a
             real measurement. Those rows are kept (so indices and history stay
@@ -1685,15 +1590,16 @@ class MOBOOptimizer(TopasMOOBaseClass):
         X = np.atleast_2d(np.asarray(X, dtype=float))
         Y = np.atleast_2d(np.asarray(Y, dtype=float))
         d = len(self.ParameterNames)
-        if X.shape[1] != d:
+        if X.ndim != 2 or X.shape[1] != d or len(X) == 0:
             raise InvalidParameterError(f"X must have {d} columns. Got {X.shape}.")
-        if Y.shape[0] != X.shape[0]:
+        if Y.ndim != 2 or Y.shape[0] != X.shape[0]:
             raise InvalidParameterError(
                 f"X and Y must have the same number of rows. Got {X.shape} and {Y.shape}."
             )
-        if Y.shape[1] != self.n_objectives:
+        if Y.shape[1] != self.n_objectives + self.n_constraints:
             raise InvalidParameterError(
-                f"Y must have n_objectives={self.n_objectives} columns. Got {Y.shape}."
+                f"Y must have {self.n_objectives} objective + {self.n_constraints} "
+                f"constraint columns. Got {Y.shape}."
             )
         if not np.all(np.isfinite(X)) or not np.all(np.isfinite(Y)):
             raise InvalidParameterError("X and Y must contain only finite values.")
@@ -1701,6 +1607,10 @@ class MOBOOptimizer(TopasMOOBaseClass):
         upper = np.asarray(self.UpperBounds, dtype=float).reshape(1, -1)
         if np.any(X < lower) or np.any(X > upper):
             raise InvalidParameterError("X contains values outside the declared parameter bounds.")
+        G = Y[:, self.n_objectives :]
+        Y = Y[:, : self.n_objectives]
+        # Validate constraints before noise handling or any state mutation.
+        new_rows_feasible = self._observed_feasible_mask(X, Y, G)
 
         if failed is None:
             failed_mask = np.zeros(Y.shape[0], dtype=bool)
@@ -1727,7 +1637,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
             Yvar = np.atleast_2d(np.asarray(Yvar, dtype=float))
             if Yvar.shape != Y.shape:
                 raise InvalidParameterError(
-                    f"Yvar shape {Yvar.shape} must match Y shape {Y.shape}."
+                    f"Yvar shape {Yvar.shape} must match the objective shape {Y.shape}."
                 )
             if not np.all(np.isfinite(Yvar)) or np.any(Yvar < 0):
                 self._fall_back_to_inferred_noise(
@@ -1746,14 +1656,16 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 Yvar = self._use_constructor_train_Yvar(Y)
             new_train_X = X.copy()
             new_train_Y = Y.copy()
+            new_train_G = G.copy()
             new_train_failed = failed_mask.copy()
             new_train_Yvar = None if self._mc_uncertainty_fallback else Yvar
             new_gp_prediction_history = batch_predictions
         else:
-            if self.train_Y is None:
-                raise InvalidParameterError("Stored train_X/train_Y state is desynchronized.")
+            if self.train_Y is None or self.train_G is None:
+                raise InvalidParameterError("Stored train_X/train_Y/train_G state is desynchronized.")
             new_train_X = np.vstack([self.train_X, X])
             new_train_Y = np.vstack([self.train_Y, Y])
+            new_train_G = np.vstack([self.train_G, G])
             new_train_failed = np.concatenate([self._failed_prefix(len(self.train_Y)), failed_mask])
             prior_predictions = self.gp_prediction_history
             if prior_predictions is None:
@@ -1791,16 +1703,13 @@ class MOBOOptimizer(TopasMOOBaseClass):
             else:
                 new_train_Yvar = np.vstack([self.train_Yvar, Yvar])
 
-        # Run the user constraint callables over the incoming rows before
-        # committing anything. Earlier rows were validated when they were
-        # committed, so only the new ones are scored -- and the answer seeds the
-        # feasibility cache rather than being recomputed on the next read.
+        # Append the feasibility already checked above to the cached prefix.
         prior_n = 0 if self.train_Y is None else len(self.train_Y)
         prior_feasible = np.zeros(0, dtype=bool) if prior_n == 0 else self._feasible_cache
-        new_rows_feasible = self._observed_feasible_mask(X, Y)
 
         self.train_X = new_train_X
         self.train_Y = new_train_Y
+        self.train_G = new_train_G
         self.train_failed = new_train_failed
         self.train_Yvar = new_train_Yvar
         self.gp_prediction_history = new_gp_prediction_history
@@ -1854,18 +1763,13 @@ class MOBOOptimizer(TopasMOOBaseClass):
                 self._variance_fn = var_fn if callable(var_fn) else None
         return self._variance_fn
 
-    def _try_extract_mc_variances(
-        self,
-        iteration: int,
-        objective_values: np.ndarray,
-    ) -> np.ndarray | None:
+    def _try_extract_mc_variances(self, iteration: int) -> np.ndarray | None:
         """Load optional per-objective variances for a specific evaluation.
 
         Looks for ``TopasObjectiveVariances(ResultsLocation, iteration)`` in
         ``TopasObjectiveFunction.py``. Returns ``None`` if absent. Variances
-        must already reflect any arithmetic used to form the objectives. User
-        objective modules can call `propagate_objective_variance` with
-        scorer means and an analytic Jacobian for ratios or other transforms.
+        must already reflect any arithmetic used to form the objectives
+        (e.g. propagate scorer variances through ratios yourself).
 
         :param iteration: The ``evaluation_index`` that actually produced the
             results being scored. This must be captured *before* calling
@@ -1876,11 +1780,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
             return None
         results_location = str(Path(self.BaseDirectory) / self.SimulationName / "Results")
         try:
-            raw = var_fn(results_location, int(iteration))
-            var = propagate_objective_variance(
-                np.asarray(objective_values, dtype=float),
-                raw,
-            )
+            var = np.asarray(var_fn(results_location, int(iteration)), dtype=float).reshape(-1)
         except Exception as exc:
             logger.warning(
                 "TopasObjectiveVariances failed (%s); will fall back if required.",
@@ -1900,7 +1800,8 @@ class MOBOOptimizer(TopasMOOBaseClass):
     def _evaluate_batch(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
         """Evaluate candidates; return ``(Y, Yvar_or_None, failed)``.
 
-        ``Y`` is in minimize space; ``failed`` is a ``(n,)`` boolean mask
+        ``Y`` contains minimized objectives followed by measured constraints;
+        ``Yvar`` is objective-only. ``failed`` is a ``(n,)`` boolean mask
         marking rows where the base class substituted ``failure_penalty``
         instead of a real measurement.
         """
@@ -1923,8 +1824,9 @@ class MOBOOptimizer(TopasMOOBaseClass):
             iteration = self.evaluation_index
             cache_key = self._cache_key(row)
             was_cached = cache_key in self._eval_cache
-            y = np.asarray(self.EvaluateObjectives(row), dtype=float).reshape(-1)
-            rows.append(y[: self.n_objectives])
+            self.EvaluateObjectives(row)
+            y = np.asarray(self._eval_cache[cache_key], dtype=float)
+            rows.append(y)
             # The base class records this for every evaluation, including ones
             # replayed from the cache on a resumed run, so a design whose real
             # objectives happen to equal failure_penalty is not misread as a
@@ -1944,10 +1846,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
                     # simulated; its Results directory may be long gone.
                     var = self._variance_cache.get(cache_key)
                 else:
-                    var = self._try_extract_mc_variances(
-                        iteration,
-                        y[: self.n_objectives],
-                    )
+                    var = self._try_extract_mc_variances(iteration)
                     if var is not None:
                         self._variance_cache[cache_key] = var
                 if var is None or not np.all(np.isfinite(var)):
@@ -2003,6 +1902,11 @@ class MOBOOptimizer(TopasMOOBaseClass):
             Yb, Vb, Fb = self._evaluate_batch(Xb)
             self.tell(Xb, Yb, Vb, failed=Fb)
 
+        if n_batches > 0 and len(self._gp_training_rows()) < 2:
+            raise RuntimeError(
+                "MOBO batch budget exhausted with fewer than two successful "
+                "evaluations; no GP could be fitted. Check the evaluator before resuming."
+            )
         self._finalize_results()
         return self.res
 
@@ -2052,10 +1956,6 @@ class MOBOOptimizer(TopasMOOBaseClass):
             as ``self.res``), matching the plotting contract used by NSGA-II.
         """
         self.SetUpDirectoryStructure()
-        # The directories now exist, so re-derive the checkpoint path through the
-        # single place that owns it rather than rebuilding it here.
-        self._mobo_checkpoint_loc = None
-        self._mobo_ckpt_path()
         logger.info(
             "Starting MOBO (%s) n_init=%s batch_size=%s n_batches=%s d=%s m=%s",
             self._acquisition_resolved,

@@ -15,15 +15,15 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     SimpleCollimator = []
     SimpleCollimator.append("# Set threading self:")
     SimpleCollimator.append(
-        "------------------------------------------------------------"
+        "# ------------------------------------------------------------"
     )
-    SimpleCollimator.append("i:Ts/NumberOfThreads = 0  ")
+    SimpleCollimator.append("i:Ts/NumberOfThreads = 1")
     SimpleCollimator.append("i:Ts/ShowHistoryCountAtInterval = 1000000")
     SimpleCollimator.append('b:Ts/ShowHistoryCountOnSingleLine = "True"')
     SimpleCollimator.append("")
     SimpleCollimator.append("# Add World:")
     SimpleCollimator.append(
-        "------------------------------------------------------------"
+        "# ------------------------------------------------------------"
     )
     SimpleCollimator.append('s:Ge/World/Type = "TsBox"')
     SimpleCollimator.append('s:Ge/World/Material = "Vacuum"')
@@ -37,9 +37,9 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     SimpleCollimator.append("d:Ge/SID = 1000 mm")
     SimpleCollimator.append("d:Ge/SecondaryCollimatorOffset = 20 mm")
     SimpleCollimator.append("")
-    SimpleCollimator.append("Target")
+    SimpleCollimator.append("# Target")
     SimpleCollimator.append(
-        "------------------------------------------------------------"
+        "# ------------------------------------------------------------"
     )
     SimpleCollimator.append('s:Ge/Target/Type 			= "TsCylinder"')
     SimpleCollimator.append('s:Ge/Target/Parent 			= "World"')
@@ -52,7 +52,7 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     SimpleCollimator.append("")
     SimpleCollimator.append("# primary collimator (abuts target)")
     SimpleCollimator.append(
-        "------------------------------------------------------------"
+        "# ------------------------------------------------------------"
     )
     SimpleCollimator.append('s:Ge/PrimaryCollimator/Parent     = "World" ')
     SimpleCollimator.append('s:Ge/PrimaryCollimator/Material   = "G4_W"')
@@ -72,26 +72,27 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     SimpleCollimator.append("")
     SimpleCollimator.append("# Secondary collimator")
     SimpleCollimator.append(
-        "------------------------------------------------------------"
+        "# ------------------------------------------------------------"
     )
     SimpleCollimator.append('s:Ge/SecondaryCollimator/Parent     = "World" ')
     SimpleCollimator.append('s:Ge/SecondaryCollimator/Material   = "G4_Pb"')
     SimpleCollimator.append('s:Ge/SecondaryCollimator/Type       = "G4Cons"')
+    # The beam travels toward -z: RMin1 is downstream, RMin2 is upstream.
     SimpleCollimator.append(
         "d:Ge/SecondaryCollimator/RMin1      = "
-        + str(variable_dict["UpStreamApertureRadius"])
+        + str(variable_dict["DownStreamApertureRadius"])
         + " mm"
     )
     SimpleCollimator.append("d:Ge/SecondaryCollimator/RMax1      = 50 mm ")
     SimpleCollimator.append(
         "d:Ge/SecondaryCollimator/RMin2      = "
-        + str(variable_dict["DownStreamApertureRadius"])
+        + str(variable_dict["UpStreamApertureRadius"])
         + " mm"
     )
     SimpleCollimator.append("d:Ge/SecondaryCollimator/RMax2      = 50 mm")
     SimpleCollimator.append(
         "d:Ge/SecondaryCollimator/HL      = "
-        + str(variable_dict["CollimatorThickness"])
+        + str(variable_dict["CollimatorThickness"] / 2)
         + " mm"
     )
     SimpleCollimator.append("d:Ge/SecondaryCollimator/Pos        = 1.7 cm")
@@ -111,7 +112,7 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     SimpleCollimator.append("")
     SimpleCollimator.append("# # Beam parameters (parameterized source):")
     SimpleCollimator.append(
-        "------------------------------------------------------------"
+        "# ------------------------------------------------------------"
     )
     SimpleCollimator.append('s:So/Beam/Type                     = "Beam"')
     SimpleCollimator.append('sc:So/Beam/Component                = "ElectronSource"')
@@ -136,7 +137,7 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
         "# ------------------------------------------------------------"
     )
     SimpleCollimator.append('s:Ge/ElectronSource/Parent = "World"')
-    SimpleCollimator.append('s:Ge/ElectronSource/Type="TsSPhere"')
+    SimpleCollimator.append('s:Ge/ElectronSource/Type="TsSphere"')
     SimpleCollimator.append("d:Ge/ElectronSource/Rmax = 5 mm")
     SimpleCollimator.append("d:Ge/ElectronSource/TransZ = 1100 mm")
     SimpleCollimator.append("d:Ge/ElectronSource/RotX = 180. deg")
@@ -257,7 +258,7 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     SimpleCollimator.append("")
     SimpleCollimator.append("# Graphics View and trajectory filters:")
     SimpleCollimator.append(
-        "------------------------------------------------------------"
+        "# ------------------------------------------------------------"
     )
     SimpleCollimator.append('b:Gr/Enable = "False"  ')
     SimpleCollimator.append('s:Gr/ViewA/Type              = "OpenGL"')
@@ -273,13 +274,13 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     SimpleCollimator.append("")
     SimpleCollimator.append("# Physics")
     SimpleCollimator.append(
-        "------------------------------------------------------------"
+        "# ------------------------------------------------------------"
     )
     SimpleCollimator.append('sv:Ph/Default/Modules = 1 "g4em-standard_opt0"')
     SimpleCollimator.append('b:Ph/ListProcesses = "False"')
     SimpleCollimator.append("")
     SimpleCollimator.append(
-        "------------------------------------------------------------"
+        "# ------------------------------------------------------------"
     )
     SimpleCollimator.append("# QT")
     SimpleCollimator.append("# --")
@@ -289,13 +290,13 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
 
     WaterTank = []
     WaterTank.append("# Set threading self:")
-    WaterTank.append("------------------------------------------------------------")
-    WaterTank.append("i:Ts/NumberOfThreads = 0  ")
+    WaterTank.append("# ------------------------------------------------------------")
+    WaterTank.append("i:Ts/NumberOfThreads = 1")
     WaterTank.append("i:Ts/ShowHistoryCountAtInterval = 100000")
     WaterTank.append("")
     WaterTank.append("")
     WaterTank.append("# Add World:")
-    WaterTank.append("------------------------------------------------------------")
+    WaterTank.append("# ------------------------------------------------------------")
     WaterTank.append('s:Ge/World/Type = "TsBox"')
     WaterTank.append('s:Ge/World/Material = "Vacuum"')
     WaterTank.append("d:Ge/World/HLX = 250 mm ")
@@ -307,7 +308,7 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     WaterTank.append("")
     WaterTank.append("")
     WaterTank.append("# Phase Space source:")
-    WaterTank.append("------------------------------------------------------------")
+    WaterTank.append("# ------------------------------------------------------------")
     WaterTank.append('s:So/Example/Type                            = "PhaseSpace"')
     WaterTank.append(
         's:So/Example/PhaseSpaceFileName               =  "../Results/coll_PhaseSpace_itt_'
@@ -322,7 +323,7 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     )
     WaterTank.append("")
     WaterTank.append("# Add the phantom")
-    WaterTank.append("------------------------------------------------------------")
+    WaterTank.append("# ------------------------------------------------------------")
     WaterTank.append("# Phantom")
     WaterTank.append('s:Ge/Phantom/Type = "TsBox"')
     WaterTank.append('s:Ge/Phantom/Parent = "World"')
@@ -345,7 +346,7 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     WaterTank.append("")
     WaterTank.append("")
     WaterTank.append("# Add Volume scorer to phantom:")
-    WaterTank.append("------------------------------------------------------------")
+    WaterTank.append("# ------------------------------------------------------------")
     WaterTank.append('s:Sc/PhantomScorer/Component = "Phantom"')
     WaterTank.append('s:Sc/PhantomScorer/Material = "Water"')
     WaterTank.append('s:Sc/PhantomScorer/Quantity                  = "DoseToMedium"')
@@ -360,7 +361,7 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     WaterTank.append("")
     WaterTank.append("")
     WaterTank.append("# Graphics View and trajectory filters:")
-    WaterTank.append("------------------------------------------------------------")
+    WaterTank.append("# ------------------------------------------------------------")
     WaterTank.append('b:Gr/Enable = "False"  ')
     WaterTank.append('s:Gr/ViewA/Type              = "OpenGL"')
     WaterTank.append("dc:Gr/ViewA/Theta            = 90 deg")
@@ -389,12 +390,12 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     WaterTank.append("")
     WaterTank.append("")
     WaterTank.append("# Physics")
-    WaterTank.append("------------------------------------------------------------")
+    WaterTank.append("# ------------------------------------------------------------")
     WaterTank.append('sv:Ph/Default/Modules = 1 "g4em-standard_opt0"')
     WaterTank.append('b:Ph/ListProcesses = "True"')
     WaterTank.append("")
     WaterTank.append("")
-    WaterTank.append("------------------------------------------------------------")
+    WaterTank.append("# ------------------------------------------------------------")
     WaterTank.append("# QT")
     WaterTank.append("# --")
     WaterTank.append("Ts/UseQt = Gr/Enable")
@@ -405,7 +406,9 @@ def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
 
 
 if __name__ == "__main__":
-    Scripts, ScriptNames = GenerateTopasScripts(".", 1)
+    Scripts, ScriptNames = GenerateTopasScripts(
+        ".", 1, UpStreamApertureRadius=1.5, DownStreamApertureRadius=2.0, CollimatorThickness=25.0
+    )
     for i, script in enumerate(Scripts):
         filename = ScriptNames[i] + ".tps"
         f = open(filename, "w")

@@ -12,7 +12,7 @@ Available styles
     * ``"ieee"``  — Engineering/IEEE: Computer Modern serif, boxed axes,
       dense ticks (uses mathtext 'cm' fontset; no LaTeX install required).
     * ``"medicalphysics"`` — Medical Physics journal-inspired formatting:
-      single-column sizing, high-contrast axes, large sans-serif text.
+      true 80 mm single-column sizing, high-contrast axes, 10 pt sans-serif text.
 
 Styles are bundled as Matplotlib style sheets so they do not require a LaTeX
 installation or third-party style packages at render time.
@@ -60,13 +60,11 @@ DOUBLE_COL_WIDTH = 7.0
 # data-color cycle.
 ACCENT_COLOR = "#E55A00"
 
-# Medical Physics fits figures to an 80 mm (single) or 180 mm (double) column
-# and will not shrink them further. Their guidance asks for >=20 pt fonts so
-# text stays legible *after* that fit. We therefore author at ~2.3x the final
-# column width: with the fonts fixed at 20 pt, the larger canvas gives the plot
-# interior more room, and the figure still reduces to ~9 pt text in print.
-# Double-column figures inherit the same scale factor via :func:`scale_figsize`.
-MEDICAL_PHYSICS_SINGLE_COL_WIDTH = 2.3 * 80 / 25.4   # ~7.24 in (prints at 80 mm)
+# Medical Physics typesets figures in an 80 mm (single) or 180 mm (double)
+# column without rescaling, so the variant authors at the true 80 mm width with
+# 10 pt fonts. Double-column figures get the same 80/88.9 ratio via
+# :func:`scale_figsize`, which keeps them inside the 180 mm column.
+MEDICAL_PHYSICS_SINGLE_COL_WIDTH = 80 / 25.4   # ~3.15 in
 MIN_RASTER_DPI = 600
 
 # Intermediate, in-loop monitoring plots are regenerated every ``plot_frequency``
@@ -75,8 +73,8 @@ MIN_RASTER_DPI = 600
 INTERMEDIATE_PLOT_DPI = 150
 
 # Authoring single-column width per publication variant. Variants absent here
-# author at :data:`SINGLE_COL_WIDTH`; list one only when it authors wider so its
-# mandated fonts stay proportionate after the journal fits it to a print column.
+# author at :data:`SINGLE_COL_WIDTH`; list one only when its journal column has a
+# different width.
 _VARIANT_AUTHORING_WIDTH = {
     "medicalphysics": MEDICAL_PHYSICS_SINGLE_COL_WIDTH,
 }
@@ -92,8 +90,8 @@ def _style_width_ratio() -> float:
 
     Most styles author at :data:`SINGLE_COL_WIDTH` (ratio 1.0). A variant listed
     in :data:`_VARIANT_AUTHORING_WIDTH` (e.g. Medical Physics, which authors at
-    ~2x the print column so its mandated >=20 pt fonts stay proportionate) is
-    enlarged by the ratio of its authoring width to the standard one.
+    its 80 mm print column) is resized by the ratio of its authoring width to
+    the standard one.
     """
     if _active_style != "publication":
         return 1.0
@@ -105,9 +103,8 @@ def scale_figsize(width: float, height: float) -> tuple[float, float]:
     """Scale a standard ``(width, height)`` in inches to the active style.
 
     Plotting functions size panels in standard single-column units; this keeps
-    them unchanged for the clean/nature/ieee styles while enlarging them for
-    the Medical Physics variant so fonts remain legible after the journal fits
-    the figure to its column.
+    them unchanged for the clean/nature/ieee styles while fitting them to the
+    Medical Physics column width.
     """
     ratio = _style_width_ratio()
     return (width * ratio, height * ratio)
@@ -121,6 +118,13 @@ def line_width(factor: float = 1.0) -> float:
     weights (e.g. ``medicalphysics``) scale every element together.
     """
     return factor * plt.rcParams["lines.linewidth"]
+
+
+def marker_edge_width(factor: float = 1.0) -> float:
+    """Scatter marker outline width: :func:`line_width`, or 0 when the style
+    disables marker edges (``lines.markeredgewidth: 0``, e.g. ``medicalphysics``).
+    """
+    return line_width(factor) if plt.rcParams["lines.markeredgewidth"] else 0.0
 
 
 def marker_area(factor: float = 1.0) -> float:
@@ -189,17 +193,10 @@ def apply_style(
 
     style_file = _resolve_style_file(_active_style, _active_publication_variant)
 
-    try:
-        # Reset to matplotlib defaults first so each style is self-contained;
-        # otherwise settings a style omits (e.g. a bold label weight from a
-        # previously applied style) leak across apply_style calls.
-        plt.style.use(["default", str(style_file)])
-    except Exception as exc:
-        logger.warning(
-            "Failed to apply style '%s' (%s); falling back to matplotlib defaults.",
-            _active_style, exc,
-        )
-        plt.style.use("default")
+    # Reset to matplotlib defaults first so each style is self-contained;
+    # otherwise settings a style omits (e.g. a bold label weight from a
+    # previously applied style) leak across apply_style calls.
+    plt.style.use(["default", str(style_file)])
 
 
 @contextlib.contextmanager
@@ -231,7 +228,6 @@ def publication_style(
 def format_publication_axes(
     ax,
     *,
-    grid: bool | None = None,
     x_integer: bool = False,
     y_integer: bool = False,
 ) -> None:
@@ -248,11 +244,8 @@ def format_publication_axes(
     if getattr(ax, "name", "") in {"3d", "polar"}:
         return
 
-    if grid is None:
-        grid = bool(plt.rcParams.get("axes.grid", False))
-
     ax.set_axisbelow(True)
-    ax.grid(grid, which="major")
+    ax.grid(bool(plt.rcParams.get("axes.grid", False)), which="major")
     ax.tick_params(which="major", direction="out")
     ax.tick_params(which="minor", direction="in")
 
@@ -307,6 +300,9 @@ def save_publication_figure(fig, save_path, dpi=None):
     :param save_path: Base path (without extension). Both ``.pdf`` and
         ``.png`` files will be written.
     :param dpi: Raster DPI (defaults to ``MIN_RASTER_DPI``).
+
+    Cropping follows the active style's ``savefig.bbox``: most styles crop
+    tight, while ``medicalphysics`` keeps the exact authored column width.
     """
     if dpi is None:
         dpi = MIN_RASTER_DPI
@@ -314,9 +310,9 @@ def save_publication_figure(fig, save_path, dpi=None):
     stem = base.parent / base.stem
     for ext, kw in [(".pdf", {}), (".png", {"dpi": dpi})]:
         try:
-            fig.savefig(f"{stem}{ext}", bbox_inches="tight", **kw)
-        except Exception:
             fig.savefig(f"{stem}{ext}", **kw)
+        except Exception:
+            fig.savefig(f"{stem}{ext}", bbox_inches=fig.bbox_inches, **kw)
     logger.debug("Saved figure to %s.{pdf,png}", stem)
 
 

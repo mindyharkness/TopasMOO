@@ -7,6 +7,7 @@ All metrics assume minimization of objectives.
 from __future__ import annotations
 
 import numpy as np
+from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 
 def normalize_objectives(
@@ -131,38 +132,4 @@ def calculate_dominance_rank(objectives: np.ndarray) -> np.ndarray:
 
     :returns: Integer array of dominance ranks with shape ``(n_solutions,)``.
     """
-    n_solutions = len(objectives)
-    domination_count = np.zeros(n_solutions, dtype=int)
-    dominated_solutions = [[] for _ in range(n_solutions)]
-    ranks = np.zeros(n_solutions, dtype=int)
-
-    for i in range(n_solutions):
-        for j in range(i + 1, n_solutions):
-            if np.all(objectives[i] <= objectives[j]) and np.any(
-                objectives[i] < objectives[j]
-            ):
-                dominated_solutions[i].append(j)
-                domination_count[j] += 1
-            elif np.all(objectives[j] <= objectives[i]) and np.any(
-                objectives[j] < objectives[i]
-            ):
-                dominated_solutions[j].append(i)
-                domination_count[i] += 1
-
-    current_front = np.where(domination_count == 0)[0]
-    rank = 0
-
-    while len(current_front) > 0:
-        ranks[current_front] = rank
-        next_front = []
-
-        for i in current_front:
-            for j in dominated_solutions[i]:
-                domination_count[j] -= 1
-                if domination_count[j] == 0:
-                    next_front.append(j)
-
-        current_front = np.array(next_front)
-        rank += 1
-
-    return ranks
+    return NonDominatedSorting().do(np.asarray(objectives, dtype=float), return_rank=True)[1]

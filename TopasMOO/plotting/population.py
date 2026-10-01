@@ -15,8 +15,8 @@ from .style import (
     apply_style,
     finalize_figure,
     format_publication_axes,
-    line_width,
     marker_area,
+    marker_edge_width,
     scale_figsize,
 )
 
@@ -86,7 +86,7 @@ def plot_population_evolution(
             c=[colors[plot_idx]],
             alpha=alpha,
             edgecolors="none" if not is_last else "#333333",
-            linewidth=0 if not is_last else line_width(0.2),
+            linewidth=0 if not is_last else marker_edge_width(0.2),
             label=f"Gen {gen_num}" if (plot_idx == 0 or is_last) else "_nolegend_",
             zorder=2 + plot_idx,
         )

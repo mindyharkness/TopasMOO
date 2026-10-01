@@ -7,54 +7,32 @@ from pathlib import Path
 import numpy as np
 from pymoo.indicators.hv import HV
 from pymoo.indicators.igd import IGD
+from pymoo.problems import get_problem
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
-from TopasMOO.metrics import hypervolume_reference_point
 from TopasMOO.mobo import MOBOOptimizer
-
-__all__ = [
-    "hypervolume_reference_point",
-    "zdt1",
-    "zdt1_true_front",
-    "bnh",
-    "bnh_feasible",
-    "bnh_decision_constraints_torch",
-    "dtlz2",
-    "nd_front",
-    "hypervolume",
-    "igd",
-    "sobol_sample",
-    "run_mobo",
-    "run_nsga2_pymoo",
-]
 
 DEV_EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "DevelopmentExample"
 
 
-def zdt1(X: np.ndarray) -> np.ndarray:
-    """ZDT1 objectives (minimize). ``X`` shape ``(n, d)``."""
+def _objectives(name: str, X: np.ndarray, **kwargs) -> np.ndarray:
+    """Minimized objectives of pymoo test problem ``name`` for ``X`` shape ``(n, d)``."""
     X = np.atleast_2d(np.asarray(X, dtype=float))
-    n = X.shape[1]
-    f1 = X[:, 0]
-    g = 1.0 + (9.0 / (n - 1)) * np.sum(X[:, 1:], axis=1)
-    h = 1.0 - np.sqrt(f1 / g)
-    f2 = g * h
-    return np.column_stack([f1, f2])
+    return get_problem(name, n_var=X.shape[1], **kwargs).evaluate(X, return_values_of=["F"])
+
+
+def zdt1(X: np.ndarray) -> np.ndarray:
+    return _objectives("zdt1", X)
 
 
 def zdt1_true_front(n_points: int = 100) -> np.ndarray:
-    f1 = np.linspace(0.0, 1.0, n_points)
-    f2 = 1.0 - np.sqrt(f1)
-    return np.column_stack([f1, f2])
+    return get_problem("zdt1").pareto_front(n_pareto_points=n_points)
 
 
 def bnh(X: np.ndarray) -> np.ndarray:
-    """BNH objectives (minimize), unconstrained evaluation."""
+    """BNH objectives, unconstrained evaluation."""
     X = np.atleast_2d(np.asarray(X, dtype=float))
-    x1, x2 = X[:, 0], X[:, 1]
-    f1 = 4.0 * x1**2 + 4.0 * x2**2
-    f2 = (x1 - 5.0) ** 2 + (x2 - 5.0) ** 2
-    return np.column_stack([f1, f2])
+    return get_problem("bnh").evaluate(X, return_values_of=["F"])
 
 
 def bnh_feasible(X: np.ndarray) -> np.ndarray:
@@ -87,19 +65,7 @@ def bnh_decision_constraints_torch():
 
 
 def dtlz2(X: np.ndarray, n_obj: int = 5) -> np.ndarray:
-    """DTLZ2 (minimize)."""
-    X = np.atleast_2d(np.asarray(X, dtype=float))
-    M = n_obj
-    g = np.sum((X[:, M - 1 :] - 0.5) ** 2, axis=1)
-    F = np.zeros((X.shape[0], M))
-    for i in range(M):
-        val = 1.0 + g
-        for j in range(M - i - 1):
-            val = val * np.cos(0.5 * np.pi * X[:, j])
-        if i > 0:
-            val = val * np.sin(0.5 * np.pi * X[:, M - i - 1])
-        F[:, i] = val
-    return F
+    return _objectives("dtlz2", X, n_obj=n_obj)
 
 
 def nd_front(Y: np.ndarray) -> np.ndarray:

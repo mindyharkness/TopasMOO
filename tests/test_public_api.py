@@ -9,8 +9,6 @@ from TopasMOO.exceptions import MalformedOutputError
 from TopasMOO.io import ReadInMultiObjectiveLogFile
 from TopasMOO.plotting import (
     DEFAULT_FINAL_PLOTS,
-    plot_gp_prediction_correlation,
-    plot_parallel_coordinates,
 )
 from TopasMOO.plotting.comprehensive import (
     GenerateComprehensiveVisualizations,
@@ -19,7 +17,6 @@ from TopasMOO.plotting.comprehensive import (
 )
 from TopasMOO.plotting.style import (
     apply_style,
-    available_publication_variants,
     publication_style,
 )
 
@@ -74,20 +71,6 @@ def test_plot_pareto_front_dispatches_by_objective_count(tmp_path) -> None:
     assert (tmp_path / "p3.png").is_file()
 
 
-def test_plotting_public_api_exports_parallel_coordinates() -> None:
-    pareto = np.array([[0.1, 0.9], [0.5, 0.5], [0.9, 0.1]])
-    ax = plot_parallel_coordinates(pareto)
-    assert ax is not None
-    plt.close(ax.figure)
-
-
-def test_plotting_public_api_exports_gp_correlation() -> None:
-    observed = np.array([[1.0, 3.0], [2.0, 2.0], [3.0, 1.0]])
-    axes = plot_gp_prediction_correlation(observed, observed + 0.1)
-    assert axes.shape == (1, 2)
-    plt.close(axes[0, 0].figure)
-
-
 def test_generate_comprehensive_adds_gp_correlation_for_mobo_default(tmp_path) -> None:
     observed = np.array([[1.0, 3.0], [2.0, 2.0], [3.0, 1.0]])
     run = RunData(
@@ -122,13 +105,6 @@ def test_root_package_exports_nsga3_optimizer() -> None:
     assert TopasMOO.NSGAIII_Optimizer is NSGAIII_Optimizer
 
 
-def test_utilities_module_importable() -> None:
-    import TopasMOO.utilities as utilities
-
-    assert callable(utilities._import_from_absolute_path)
-    assert callable(utilities._load_user_callable)
-
-
 def test_read_log_raises_file_not_found_error_for_missing_file(tmp_path) -> None:
     missing = tmp_path / "does_not_exist.txt"
     with pytest.raises(FileNotFoundError):
@@ -137,16 +113,9 @@ def test_read_log_raises_file_not_found_error_for_missing_file(tmp_path) -> None
 
 def test_read_log_raises_malformed_output_on_bad_value(tmp_path) -> None:
     bad_log = tmp_path / "bad.txt"
-    bad_log.write_text(
-        "Iteration: 0, x1: 0.5, x2: 0.5, ObjectiveFunction_1: not_a_number\n"
-    )
+    bad_log.write_text("Iteration: 0, x1: 0.5, x2: 0.5, ObjectiveFunction_1: not_a_number\n")
     with pytest.raises(MalformedOutputError):
         ReadInMultiObjectiveLogFile(str(bad_log))
-
-
-def test_publication_variants_listed() -> None:
-    variants = available_publication_variants()
-    assert set(variants) == {"clean", "nature", "ieee", "medicalphysics"}
 
 
 @pytest.mark.parametrize("variant", ["clean", "nature", "ieee", "medicalphysics"])

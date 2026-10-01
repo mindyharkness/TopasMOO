@@ -15,12 +15,13 @@ import numpy as np
 from common import (
     bnh,
     hypervolume,
-    hypervolume_reference_point,
     nd_front,
     run_mobo,
     run_nsga2_pymoo,
     sobol_sample,
 )
+
+from TopasMOO.metrics import hypervolume_reference_point
 
 OUT = Path(__file__).resolve().parent / "results"
 OUT.mkdir(exist_ok=True)

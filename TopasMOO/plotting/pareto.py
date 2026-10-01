@@ -12,11 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 
-from ..metrics import (
-    calculate_crowding_distance,
-    calculate_dominance_rank,
-    calculate_knee_point,
-)
+from ..metrics import calculate_knee_point
 from .style import (
     ACCENT_COLOR,
     DOUBLE_COL_WIDTH,
@@ -26,6 +22,7 @@ from .style import (
     format_publication_axes,
     line_width,
     marker_area,
+    marker_edge_width,
     scale_figsize,
 )
 
@@ -91,25 +88,9 @@ def _knee_point_style() -> dict:
         marker="*",
         c=ACCENT_COLOR,
         edgecolors="#333333",
-        linewidth=line_width(0.4),
+        linewidth=marker_edge_width(0.4),
         label="Knee point",
     )
-
-
-def _resolve_metric(color_by_metric, metric_values, metric_label, objectives):
-    """Resolve a ``color_by_metric`` request to ``(values, label)``.
-
-    When ``metric_values`` is already provided it is returned unchanged. The
-    named metrics ``"crowding"`` and ``"rank"`` are computed from ``objectives``
-    with a sensible default label. Shared by the 2D and 3D Pareto plots.
-    """
-    if not color_by_metric or metric_values is not None:
-        return metric_values, metric_label
-    if color_by_metric == "crowding":
-        return calculate_crowding_distance(objectives), metric_label or "Crowding Distance"
-    if color_by_metric == "rank":
-        return calculate_dominance_rank(objectives), metric_label or "Dominance Rank"
-    return metric_values, metric_label
 
 
 def plot_pareto_front_2d(
@@ -123,9 +104,6 @@ def plot_pareto_front_2d(
     ylabel: str = "Objective 2",
     highlight_solutions: Sequence[int] | None = None,
     show_knee_point: bool = False,
-    color_by_metric: str | None = None,
-    metric_values: np.ndarray | None = None,
-    metric_label: str | None = None,
     dpi: int | None = None,
 ) -> Axes:
     """Publication-quality 2D Pareto front scatter plot.
@@ -139,9 +117,6 @@ def plot_pareto_front_2d(
     :param ylabel: Y-axis label (include units).
     :param highlight_solutions: Indices of solutions to highlight.
     :param show_knee_point: Mark the knee (best trade-off) point.
-    :param color_by_metric: ``'crowding'`` or ``'rank'`` to color points.
-    :param metric_values: Custom per-solution values for coloring.
-    :param metric_label: Colorbar label.
     :param dpi: Raster resolution (defaults to the publication DPI floor).
 
     :returns: The matplotlib Axes used for plotting.
@@ -158,44 +133,22 @@ def plot_pareto_front_2d(
             true_front[:, 0],
             true_front[:, 1],
             "k--",
-            linewidth=1.5,
+            linewidth=line_width(),
             alpha=0.5,
             label="True Pareto Front",
             zorder=1,
         )
 
-    metric_values, metric_label = _resolve_metric(
-        color_by_metric, metric_values, metric_label, pareto_objectives
+    ax.scatter(
+        pareto_objectives[:, 0],
+        pareto_objectives[:, 1],
+        s=marker_area(1.3),
+        alpha=0.88,
+        edgecolors="black",
+        linewidth=marker_edge_width(0.25),
+        label="Obtained Solutions",
+        zorder=3,
     )
-
-    if color_by_metric and metric_values is not None:
-        plot_values = _clamp_inf(metric_values)
-        scatter = ax.scatter(
-            pareto_objectives[:, 0],
-            pareto_objectives[:, 1],
-            c=plot_values,
-            cmap="viridis",
-            s=marker_area(1.3),
-            alpha=0.88,
-            edgecolors="black",
-            linewidth=line_width(0.25),
-            zorder=3,
-        )
-        cbar = fig.colorbar(scatter, ax=ax, pad=0.04)
-        cbar.set_label(
-            metric_label, rotation=270, labelpad=1.4 * plt.rcParams["font.size"]
-        )
-    else:
-        ax.scatter(
-            pareto_objectives[:, 0],
-            pareto_objectives[:, 1],
-            s=marker_area(1.3),
-            alpha=0.88,
-            edgecolors="black",
-            linewidth=line_width(0.25),
-            label="Obtained Solutions",
-            zorder=3,
-        )
 
     if show_knee_point:
         knee_idx = calculate_knee_point(pareto_objectives)
@@ -224,8 +177,12 @@ def plot_pareto_front_2d(
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     format_publication_axes(ax)
-    if not color_by_metric:
-        ax.legend(loc="best", frameon=True)
+    if own_fig:
+        # Below the axes so it never covers data; constrained layout
+        # shrinks the axes, keeping the figure at its column width.
+        fig.legend(loc="outside lower center", ncol=1)
+    else:
+        ax.legend(loc="best")
 
     finalize_figure(fig, save_path, own_fig=own_fig, dpi=dpi)
 
@@ -240,9 +197,6 @@ def plot_pareto_front_3d(
     title: str = "Pareto Front (3D)",
     labels: Sequence[str] | None = None,
     show_knee_point: bool = False,
-    color_by_metric: str | None = None,
-    metric_values: np.ndarray | None = None,
-    metric_label: str | None = None,
     dpi: int | None = None,
 ) -> Axes:
     """Publication-quality 3D Pareto front scatter plot.
@@ -253,9 +207,6 @@ def plot_pareto_front_3d(
     :param title: Plot title.
     :param labels: List of 3 axis labels (with units).
     :param show_knee_point: Mark the knee point.
-    :param color_by_metric: ``'crowding'`` or ``'rank'``.
-    :param metric_values: Custom coloring values.
-    :param metric_label: Colorbar label.
     :param dpi: Raster resolution (defaults to the publication DPI floor).
 
     :returns: The matplotlib 3D Axes.
@@ -274,41 +225,21 @@ def plot_pareto_front_3d(
     # use explicit artist zorder instead (panes/grid keep their low defaults).
     ax.computed_zorder = False
 
-    metric_values, metric_label = _resolve_metric(
-        color_by_metric, metric_values, metric_label, pareto_objectives
+    # Color by the third objective as a depth cue: it restates the
+    # z-position, which is exactly what's hard to read in a projected
+    # 3D scatter, so no colorbar is needed.
+    ax.scatter(
+        pareto_objectives[:, 0],
+        pareto_objectives[:, 1],
+        pareto_objectives[:, 2],
+        s=marker_area(1.2),
+        alpha=0.85,
+        edgecolors="black",
+        linewidth=marker_edge_width(0.25),
+        c=pareto_objectives[:, 2],
+        cmap="viridis",
+        zorder=4,
     )
-
-    if color_by_metric and metric_values is not None:
-        plot_values = _clamp_inf(metric_values)
-        scatter = ax.scatter(
-            pareto_objectives[:, 0],
-            pareto_objectives[:, 1],
-            pareto_objectives[:, 2],
-            s=marker_area(1.2),
-            alpha=0.8,
-            edgecolors="black",
-            linewidth=line_width(0.25),
-            c=plot_values,
-            cmap="viridis",
-            zorder=4,
-        )
-        fig.colorbar(scatter, ax=ax, pad=0.1, shrink=0.7, label=metric_label)
-    else:
-        # Color by the third objective as a depth cue: it restates the
-        # z-position, which is exactly what's hard to read in a projected
-        # 3D scatter, so no colorbar is needed.
-        ax.scatter(
-            pareto_objectives[:, 0],
-            pareto_objectives[:, 1],
-            pareto_objectives[:, 2],
-            s=marker_area(1.2),
-            alpha=0.85,
-            edgecolors="black",
-            linewidth=line_width(0.25),
-            c=pareto_objectives[:, 2],
-            cmap="viridis",
-            zorder=4,
-        )
 
     if show_knee_point:
         knee_idx = calculate_knee_point(pareto_objectives)
@@ -387,7 +318,7 @@ def plot_pareto_front_projections(
                 s=marker_area(1.0),
                 alpha=0.7,
                 edgecolors="black",
-                linewidth=line_width(0.2),
+                linewidth=marker_edge_width(0.2),
             )
             ax.set_xlabel(objective_names[i])
             ax.set_ylabel(objective_names[j])
@@ -402,12 +333,3 @@ def plot_pareto_front_projections(
     finalize_figure(fig, save_path, dpi=dpi)
 
     return axes
-
-
-def _clamp_inf(values):
-    """Replace infinite values with 1.2x the finite maximum for plotting."""
-    out = np.copy(values).astype(float)
-    if np.any(np.isinf(out)):
-        finite_max = np.max(out[np.isfinite(out)])
-        out[np.isinf(out)] = finite_max * 1.2
-    return out

@@ -177,7 +177,6 @@ class TopasMOOBaseClass(ABC):
             msg = (
                 "optimization_params must include a non-None 'start_point' "
             )
-            logger.error(msg)
             raise InvalidParameterError(msg)
 
         optimization_params = self._convert_optimization_params_to_numpy(
@@ -189,7 +188,6 @@ class TopasMOOBaseClass(ABC):
             msg = (
                 'TopasMOO requires "n_objectives" key in optimization_params. '
             )
-            logger.error(msg)
             raise InvalidParameterError(msg)
 
         self.n_objectives = int(optimization_params["n_objectives"])
@@ -199,7 +197,6 @@ class TopasMOOBaseClass(ABC):
                 f"You specified {self.n_objectives}. "
                 f"Use TopasOpt for single-objective problems."
             )
-            logger.error(msg)
             raise InvalidParameterError(msg)
 
         self.n_constraints = int(n_constraints)
@@ -248,7 +245,6 @@ class TopasMOOBaseClass(ABC):
 
         if not os.path.isdir(BaseDirectory):
             msg = f'Input BaseDirectory "{BaseDirectory}" does not exist.'
-            logger.error(msg)
             raise FileNotFoundError(msg)
 
         self.SimulationName = SimulationName
@@ -276,14 +272,15 @@ class TopasMOOBaseClass(ABC):
         self.UpperBounds = optimization_params["UpperBounds"]
         self.LowerBounds = optimization_params["LowerBounds"]
         self.n_generations = int(optimization_params["n_iterations"])
-        self._create_variable_dictionary(self.StartingValues)
         self.Overwrite = Overwrite
 
         # Plot configuration. Reject bools and non-integral numbers outright
         # rather than coercing: int(2.9) == 2 would silently plot at a
         # different cadence than the caller asked for.
-        if isinstance(plot_frequency, bool) or not isinstance(
-            plot_frequency, numbers.Integral
+        if (
+            isinstance(plot_frequency, bool)
+            or not isinstance(plot_frequency, numbers.Integral)
+            or plot_frequency < 1
         ):
             raise InvalidParameterError(
                 "plot_frequency must be a positive integer "
@@ -291,12 +288,6 @@ class TopasMOOBaseClass(ABC):
                 f"Got {plot_frequency!r}."
             )
         self.plot_frequency = int(plot_frequency)
-        if self.plot_frequency < 1:
-            raise InvalidParameterError(
-                "plot_frequency must be a positive integer "
-                f"(number of evaluations between intermediate plots). "
-                f"Got {plot_frequency!r}."
-            )
         self.final_plots = final_plots
         self.plot_style = plot_style
         self.intermediate_plot_style = intermediate_plot_style
@@ -341,26 +332,8 @@ class TopasMOOBaseClass(ABC):
             )
 
         # Load user defined model generator and objective function
-        try:
-            generate_mod = _import_from_absolute_path(
-                Path(self.OptimizationDirectory) / "GenerateTopasScripts.py"
-            )
-        except ModuleNotFoundError as e:
-            logger.error(
-                f'Failed to import required file at {str(Path(self.OptimizationDirectory) / "GenerateTopasScripts.py")}.'
-                f"\nQuitting"
-            )
-            raise e
-        try:
-            objective_mod = _import_from_absolute_path(
-                Path(self.OptimizationDirectory) / "TopasObjectiveFunction.py"
-            )
-        except ModuleNotFoundError as e:
-            logger.error(
-                f'Failed to import required file at {str(Path(self.OptimizationDirectory) / "TopasObjectiveFunction.py")}.'
-                f"\nQuitting"
-            )
-            raise e
+        generate_mod = _import_from_absolute_path(Path(self.OptimizationDirectory) / "GenerateTopasScripts.py")
+        objective_mod = _import_from_absolute_path(Path(self.OptimizationDirectory) / "TopasObjectiveFunction.py")
         self.TopasScriptGenerator = _load_user_callable(
             generate_mod,
             "GenerateTopasScripts",
@@ -462,38 +435,15 @@ class TopasMOOBaseClass(ABC):
                     f"optimization param '{param_key}' must be a list or numpy "
                     f"array, got {type(value).__name__}."
                 )
-                logger.error(msg)
                 raise InvalidParameterError(msg)
             optimization_params[param_key] = value.astype(float)
 
         return optimization_params
 
     def _create_variable_dictionary(self, x):
-        """Map ``ParameterNames`` to scalar values in ``self.VariableDict``.
-
-        :param x: 1D vector or single-row 2D array of parameters.
-
-        :raises InvalidParameterError: If ``x`` is not 1D or 2D in the expected layout.
-        """
-        if np.ndim(x) == 1:
-            self.VariableDict = {
-                self.ParameterNames[i]: x[i] for i in range(len(self.ParameterNames))
-            }
-        elif np.ndim(x) == 2:
-            self.VariableDict = {
-                self.ParameterNames[i]: x[0][i] for i in range(len(self.ParameterNames))
-            }
-        else:
-            msg = (
-                f"Parameter vector must be 1D or a single-row 2D array; "
-                f"got {np.ndim(x)} dimensions."
-            )
-            logger.error(msg)
-            raise InvalidParameterError(msg)
-
-        for key in self.VariableDict.keys():
-            if isinstance(self.VariableDict[key], np.ndarray):
-                self.VariableDict[key] = self.VariableDict[key][0]
+        """Map ``ParameterNames`` to the scalar values of one design ``x``
+        (1-D, or a single-row 2-D array) in ``self.VariableDict``."""
+        self.VariableDict = dict(zip(self.ParameterNames, np.ravel(x), strict=True))
 
     def _empty_simulation_folder(self):
         """Clear the simulation folder if it has contents and ``Overwrite`` is True.
@@ -514,14 +464,10 @@ class TopasMOOBaseClass(ABC):
         logger.warning("Emptying simulation folder %s", SimName)
         for filename in os.listdir(SimName):
             file_path = os.path.join(SimName, filename)
-            try:
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path)
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-            except Exception as e:
-                logger.error("Failed to delete %s.", file_path)
-                raise e
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
 
     def _check_input_data(self):
         """Validate dimensions, bounds, starting point, and TOPAS binary (unless testing).
@@ -531,15 +477,12 @@ class TopasMOOBaseClass(ABC):
         """
         if not np.size(self.ParameterNames) == np.size(self.StartingValues):
             msg = "size of ParameterNames does not match size of StartingValues"
-            logger.error(msg)
             raise InvalidParameterError(msg)
         if not np.size(self.StartingValues) == np.size(self.UpperBounds):
             msg = "size of StartingValues does not match size of UpperBounds"
-            logger.error(msg)
             raise InvalidParameterError(msg)
         if not np.size(self.UpperBounds) == np.size(self.LowerBounds):
             msg = "size of UpperBounds does not match size of LowerBounds"
-            logger.error(msg)
             raise InvalidParameterError(msg)
 
         for i, Parameter in enumerate(self.ParameterNames):
@@ -549,14 +492,12 @@ class TopasMOOBaseClass(ABC):
                     f"For {Parameter}, Starting value {start_value} "
                     f"is less than Lower bound {self.LowerBounds[i]}"
                 )
-                logger.error(msg)
                 raise InvalidParameterError(msg)
             elif start_value > self.UpperBounds[i]:
                 msg = (
                     f"For {Parameter}, Starting value {start_value} "
                     f"is greater than upper bound {self.UpperBounds[i]}"
                 )
-                logger.error(msg)
                 raise InvalidParameterError(msg)
 
         if not self._testing_mode:
@@ -672,15 +613,10 @@ class TopasMOOBaseClass(ABC):
             topas_log_dir = (
                 Path(self.BaseDirectory) / self.SimulationName / "logs" / "TopasLogs"
             )
-            logger.error(
-                f"RunIteration.sh failed with exit code {cmd.returncode}."
-                f"\nSuggestion: look at {topas_log_dir} "
-                f"\nto figure out what went wrong... Quitting"
-            )
+            # _collect_raw_objectives logs this when it penalizes or re-raises.
             raise TopasExecutionError(
-                f"RunIteration.sh failed with exit code {cmd.returncode}."
-                f"\nSuggestion: look at {topas_log_dir} "
-                f"\nto figure out what went wrong... Quitting"
+                f"RunIteration.sh failed with exit code {cmd.returncode}. "
+                f"See {topas_log_dir} for the TOPAS output."
             )
 
     def _update_optimization_logs(self, x, objective_values):
@@ -691,11 +627,8 @@ class TopasMOOBaseClass(ABC):
         """
         with open(self._LogFileLoc, "a") as f:
             Entry = f"Iteration: {self.evaluation_index}"
-            for i, Parameter in enumerate(self.ParameterNames):
-                try:
-                    Entry = Entry + f", {Parameter}: {x[0][i]: 1.2f}"
-                except IndexError:
-                    Entry = Entry + f", {Parameter}: {x[i]: 1.2f}"
+            for Parameter, value in zip(self.ParameterNames, np.ravel(x), strict=True):
+                Entry = Entry + f", {Parameter}: {value: 1.2f}"
 
             # Log all objective function values
             for i, of_val in enumerate(objective_values):
@@ -851,92 +784,6 @@ class TopasMOOBaseClass(ABC):
                     f"Failed to delete {file_path} from results folder. Reason: {e}. continuing..."
                 )
 
-    def _normalize_history_populations(self, populations):
-        """Return validated per-generation objective matrices.
-
-        Accepts a single ``(pop_size, n_objectives)`` NumPy matrix, a stacked
-        ``(n_generations, pop_size, n_objectives)`` NumPy array, or any iterable
-        of two-dimensional population matrices. If ``populations`` is ``None``,
-        pymoo's saved result history is used when available.
-
-        Empty histories are logged and returned as an empty list. Malformed,
-        non-numeric, or non-finite population data raises ``ValueError`` with
-        the generation index and expected shape.
-        """
-        if populations is None:
-            result = getattr(self, "res", None)
-            result_history = getattr(result, "history", None)
-            if result_history is None:
-                logger.warning("No history available in optimization results")
-                return []
-            populations = [algo.pop.get("F") for algo in result_history]
-        elif isinstance(populations, np.ndarray):
-            if populations.ndim == 2:
-                populations = [populations]
-            elif populations.ndim == 3:
-                populations = list(populations)
-            else:
-                raise ValueError(
-                    "populations must have shape (pop_size, n_objectives) or "
-                    "(n_generations, pop_size, n_objectives); "
-                    f"got array shape {populations.shape}."
-                )
-        else:
-            try:
-                populations = list(populations)
-            except TypeError as exc:
-                raise ValueError(
-                    "populations must be a two- or three-dimensional NumPy "
-                    "array or an iterable of population matrices."
-                ) from exc
-
-        if len(populations) == 0:
-            logger.warning("No history available in optimization results")
-            return []
-
-        expected_pop_size = getattr(self, "pop_size", None)
-        normalized = []
-        for gen_idx, population in enumerate(populations):
-            try:
-                matrix = np.asarray(population, dtype=float)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"Population for generation {gen_idx} must contain numeric "
-                    "objective values."
-                ) from exc
-
-            if matrix.ndim != 2:
-                raise ValueError(
-                    f"Population for generation {gen_idx} must be a "
-                    "two-dimensional objective matrix; got shape {matrix.shape}."
-                )
-            if matrix.shape[0] == 0:
-                raise ValueError(
-                    f"Population for generation {gen_idx} must not be empty."
-                )
-            if matrix.shape[1] != self.n_objectives:
-                raise ValueError(
-                    f"Population for generation {gen_idx} must have "
-                    f"{self.n_objectives} objective columns; got shape {matrix.shape}."
-                )
-            if (
-                isinstance(expected_pop_size, numbers.Integral)
-                and matrix.shape[0] != expected_pop_size
-            ):
-                raise ValueError(
-                    f"Population for generation {gen_idx} must have "
-                    f"{expected_pop_size} rows to match pop_size; "
-                    f"got shape {matrix.shape}."
-                )
-            if not np.isfinite(matrix).all():
-                raise ValueError(
-                    f"Population for generation {gen_idx} contains non-finite "
-                    "objective values."
-                )
-            normalized.append(matrix.copy())
-
-        return normalized
-
     def _run_pymoo_optimization(self, algorithm_name):
         """Run a configured pymoo optimizer and persist its final state."""
         self.SetUpDirectoryStructure()
@@ -993,9 +840,8 @@ class TopasMOOBaseClass(ABC):
         self.GenerateFinalVisualizations()
         return self.res
 
-    def _extract_optimization_history(self, populations=None):
-        """Fill hypervolume and population history from per-generation data."""
-        populations = self._normalize_history_populations(populations)
+    def _extract_optimization_history(self, populations):
+        """Fill hypervolume and population history from per-generation objective matrices."""
         if not populations:
             return
 
@@ -1191,7 +1037,6 @@ class TopasMOOBaseClass(ABC):
                 f"TopasObjectiveFunction must return a list or numpy array. "
                 f"Got {type(objective_values)} instead."
             )
-            logger.error(msg)
             raise ObjectiveFunctionError(msg)
         objective_values = np.asarray(objective_values, dtype=float)
         if objective_values.ndim != 1:
@@ -1209,7 +1054,6 @@ class TopasMOOBaseClass(ABC):
                 f"TopasObjectiveFunction returned {len(objective_values)} values, but {expected} "
                 f"were expected ({what})."
             )
-            logger.error(msg)
             raise ObjectiveFunctionError(msg)
 
         # --- Non-finite values are a runtime failure, not a contract bug.

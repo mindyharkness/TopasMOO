@@ -26,16 +26,16 @@ from TopasMOO.optimizers import NSGAII_Optimizer
 # GenerateTopasScripts that records every decision variable as a comment, exactly
 # like the DevelopmentExample, so the round-trip through the generated .tps file
 # is exercised rather than bypassed.
-_GENERATE_SCRIPT = '''def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
+_GENERATE_SCRIPT = """def GenerateTopasScripts(BaseDirectory, iteration, **variable_dict):
     script = ["# ZDT1 golden reproducibility test"]
     for i in range(1, 6):
         script.append(f"# x{i} = {variable_dict[f'x{i}']}")
     return [script], ["GoldenZDT1"]
-'''
+"""
 
 # TopasObjectiveFunction that parses the parameters back out of the generated
 # script and evaluates the analytic ZDT1 objectives (both minimized).
-_OBJECTIVE_SCRIPT = '''from pathlib import Path
+_OBJECTIVE_SCRIPT = """from pathlib import Path
 import numpy as np
 def TopasObjectiveFunction(ResultsLocation, iteration):
     script = Path(ResultsLocation).parent / "TopasScripts" / f"GoldenZDT1_itt_{iteration}.tps"
@@ -52,7 +52,7 @@ def TopasObjectiveFunction(ResultsLocation, iteration):
     g = 1.0 + 9.0 / (len(x) - 1) * np.sum(x[1:])
     f2 = g * (1.0 - np.sqrt(f1 / g))
     return [f1, f2]
-'''
+"""
 
 
 def _write_zdt1_project(opt_dir: Path) -> None:
@@ -101,7 +101,7 @@ def _is_mutually_nondominated(front: np.ndarray) -> bool:
     return True
 
 
-def test_zdt1_seeded_run_is_deterministic(tmp_path: Path) -> None:
+def test_zdt1_seeded_run_is_deterministic_and_valid(tmp_path: Path) -> None:
     """Same seed, independent dirs -> bit-identical Pareto fronts."""
     front_a = _run_zdt1(tmp_path / "run_a")
     front_b = _run_zdt1(tmp_path / "run_b")
@@ -121,10 +121,7 @@ def test_zdt1_seeded_run_is_deterministic(tmp_path: Path) -> None:
         ),
     )
 
-
-def test_zdt1_run_is_a_valid_pareto_front(tmp_path: Path) -> None:
-    """The returned set is a valid, feasible ZDT1 Pareto front."""
-    front = _run_zdt1(tmp_path)
+    front = front_a
 
     # Non-empty and shaped (n, 2).
     assert front.ndim == 2 and front.shape[1] == 2, f"Unexpected front shape: {front.shape}"
@@ -147,6 +144,5 @@ def test_zdt1_run_is_a_valid_pareto_front(tmp_path: Path) -> None:
 
     # The returned set must genuinely be non-dominated.
     assert _is_mutually_nondominated(front), (
-        "Returned front contains dominated solutions; the final non-dominated "
-        "extraction is broken."
+        "Returned front contains dominated solutions; the final non-dominated extraction is broken."
     )

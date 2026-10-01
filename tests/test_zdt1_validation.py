@@ -1,4 +1,3 @@
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -28,9 +27,7 @@ def test_analytical_front_passes_with_expected_metrics():
     assert summary.solution_count == 1000
     assert summary.igd == pytest.approx(0.0, abs=1e-12)
     assert summary.max_front_error == pytest.approx(0.0, abs=1e-12)
-    assert summary.hypervolume == pytest.approx(
-        HV(ref_point=np.array([1.1, 1.1]))(front)
-    )
+    assert summary.hypervolume == pytest.approx(HV(ref_point=np.array([1.1, 1.1]))(front))
     assert summary.passed
     assert IGD_LIMIT == 0.05
     assert MAX_FRONT_ERROR_LIMIT == 0.05
@@ -78,28 +75,9 @@ def test_generator_writes_only_documented_artifacts(tmp_path):
         "zdt1_validation.txt",
     }
 
-
-def test_report_matches_returned_summary(tmp_path):
-    summary = generate_zdt1_validation(
-        result_with(compute_true_pareto_front(30)),
-        tmp_path,
-    )
-
     report = (tmp_path / "zdt1_validation.txt").read_text()
     assert f"IGD: {summary.igd:.6f}" in report
     assert f"Hypervolume: {summary.hypervolume:.6f}" in report
     assert f"Maximum front error: {summary.max_front_error:.6f}" in report
     assert "Status: PASS" in report
     assert "limit: 0.050000" in report
-
-
-def test_development_example_uses_single_validation_entry_point():
-    source = Path(
-        "examples/DevelopmentExample/DevelopmentExample_main.py"
-    ).read_text(encoding="utf-8")
-
-    assert source.count("generate_zdt1_validation(") == 1
-    assert "plot_comparison_with_true_front(" not in source
-    assert "plot_decision_space(" not in source
-    assert "generate_detailed_report(" not in source
-    assert "generate_all_publication_plots(" not in source

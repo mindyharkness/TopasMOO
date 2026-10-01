@@ -16,8 +16,8 @@ from .style import (
     apply_style,
     finalize_figure,
     format_publication_axes,
-    line_width,
     marker_area,
+    marker_edge_width,
     scale_figsize,
 )
 
@@ -70,7 +70,7 @@ def plot_parameter_objective_correlation(
                 s=marker_area(0.85),
                 alpha=0.6,
                 edgecolors="black",
-                linewidth=line_width(0.2),
+                linewidth=marker_edge_width(0.2),
             )
             if i == n_obj - 1:
                 lbl = parameter_names[j] if parameter_names else f"Param {j + 1}"

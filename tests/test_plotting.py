@@ -1,16 +1,5 @@
-"""
-Plotting, metrics, and log I/O tests for TopasMOO.
+"""Plot content, representative exports, layout regressions, metrics, and log I/O."""
 
-Tests cover:
-- All Pareto front visualization functions (2D, 3D, projections)
-- Parallel coordinates plots
-- Petal diagrams
-- Convergence plotting
-- Metric calculations (knee point, crowding distance, dominance rank)
-- Log file I/O
-- Comprehensive visualization generator
-- Edge cases and error handling
-"""
 import sys
 import warnings
 from pathlib import Path
@@ -45,11 +34,6 @@ from TopasMOO.plotting import (
 )
 from TopasMOO.plotting.style import apply_style
 
-# ============================================================================
-# Fixtures
-# ============================================================================
-
-
 # temp_dir comes from tests/conftest.py.
 
 
@@ -74,17 +58,9 @@ def pareto_3d():
 
 
 @pytest.fixture
-def pareto_4d():
-    """Synthetic 4D Pareto front data (high-dimensional)"""
-    np.random.seed(42)
-    return np.random.rand(15, 4) * 10
-
-
-@pytest.fixture
 def pareto_5d():
     """Synthetic 5D Pareto front data"""
-    np.random.seed(123)
-    return np.random.rand(20, 5) * 10
+    return np.random.default_rng(123).random((20, 5)) * 10
 
 
 @pytest.fixture
@@ -133,367 +109,183 @@ def sample_log_file_3obj(temp_dir):
     return log_path
 
 
-# ============================================================================
-# 2D Pareto Front Tests
-# ============================================================================
-
-
 class TestParetoFront2D:
-    """Test 2D Pareto front plotting"""
+    def test_data_labels_knee_and_export(self, tmp_path, pareto_2d):
+        from PIL import Image
 
-    def test_basic_2d_plot(self, temp_dir, pareto_2d):
-        """Test basic 2D Pareto front plot creation"""
-        save_path = Path(temp_dir) / "pareto_2d.png"
-        plot_pareto_front_2d(pareto_2d, save_path)
-        assert save_path.exists()
-
-    def test_2d_plot_with_knee_point(self, temp_dir, pareto_2d):
-        """Test 2D plot with knee point highlighting"""
-        save_path = Path(temp_dir) / "pareto_2d_knee.png"
-        plot_pareto_front_2d(pareto_2d, save_path, show_knee_point=True)
-        assert save_path.exists()
-
-    def test_2d_plot_custom_labels(self, temp_dir, pareto_2d):
-        """Test 2D plot with custom axis labels"""
-        save_path = Path(temp_dir) / "pareto_2d_labels.png"
-        plot_pareto_front_2d(
-            pareto_2d, save_path, xlabel="Dose Error (%)", ylabel="Efficiency Loss (%)"
+        path = tmp_path / "pareto.png"
+        ax = plot_pareto_front_2d(
+            pareto_2d,
+            path,
+            true_front=pareto_2d,
+            show_knee_point=True,
+            xlabel="Dose Error (%)",
+            ylabel="Efficiency Loss (%)",
+            title="Trade-offs",
+            dpi=150,
         )
-        assert save_path.exists()
+        assert (ax.get_xlabel(), ax.get_ylabel(), ax.get_title()) == (
+            "Dose Error (%)",
+            "Efficiency Loss (%)",
+            "Trade-offs",
+        )
+        np.testing.assert_array_equal(ax.collections[0].get_offsets(), pareto_2d)
+        np.testing.assert_array_equal(ax.collections[1].get_offsets(), pareto_2d[[1]])
+        np.testing.assert_array_equal(ax.lines[0].get_xydata(), pareto_2d)
+        assert [t.get_text() for t in ax.figure.legends[0].get_texts()] == [
+            "True Pareto Front",
+            "Obtained Solutions",
+            "Knee point",
+        ]
+        assert path.with_suffix(".pdf").is_file()
+        with Image.open(path) as saved:
+            # PNG stores integer pixels/metre, so DPI is rounded on conversion.
+            assert saved.info["dpi"] == pytest.approx((150, 150), abs=0.02)
 
-    def test_2d_plot_custom_title(self, temp_dir, pareto_2d):
-        """Test 2D plot with custom title"""
-        save_path = Path(temp_dir) / "pareto_2d_title.png"
-        plot_pareto_front_2d(pareto_2d, save_path, title="Custom Pareto Front Title")
-        assert save_path.exists()
-
-    def test_2d_plot_custom_dpi(self, temp_dir, pareto_2d):
-        """Test 2D plot with custom DPI"""
-        save_path = Path(temp_dir) / "pareto_2d_dpi.png"
-        plot_pareto_front_2d(pareto_2d, save_path, dpi=150)
-        assert save_path.exists()
-
-    def test_2d_plot_single_point(self, temp_dir):
-        """Test 2D plot with single solution"""
-        single_point = np.array([[1.0, 2.0]])
-        save_path = Path(temp_dir) / "pareto_2d_single.png"
-        plot_pareto_front_2d(single_point, save_path)
-        assert save_path.exists()
-
-    def test_2d_plot_many_points(self, temp_dir):
-        """Test 2D plot with many solutions"""
-        np.random.seed(42)
-        many_points = np.random.rand(100, 2) * 10
-        save_path = Path(temp_dir) / "pareto_2d_many.png"
-        plot_pareto_front_2d(many_points, save_path)
-        assert save_path.exists()
-
-
-# ============================================================================
-# 3D Pareto Front Tests
-# ============================================================================
+    def test_single_point(self):
+        ax = plot_pareto_front_2d(np.array([[1.0, 2.0]]), show_knee_point=True)
+        try:
+            np.testing.assert_array_equal(ax.collections[1].get_offsets(), [[1, 2]])
+            assert np.isfinite([ax.get_xlim(), ax.get_ylim()]).all()
+        finally:
+            plt.close(ax.figure)
 
 
 class TestParetoFront3D:
-    """Test 3D Pareto front plotting"""
+    def test_data_labels_knee_and_export(self, tmp_path, pareto_3d):
+        path = tmp_path / "pareto_3d.png"
+        ax = plot_pareto_front_3d(
+            pareto_3d,
+            path,
+            show_knee_point=True,
+            labels=["Dose", "Time", "Error"],
+            title="Three objectives",
+        )
+        assert (ax.get_xlabel(), ax.get_ylabel(), ax.get_zlabel()) == ("Dose", "Time", "Error")
+        assert ax.get_title() == "Three objectives"
+        np.testing.assert_array_equal(np.column_stack(ax.collections[0]._offsets3d), pareto_3d)
+        np.testing.assert_array_equal(np.column_stack(ax.collections[1]._offsets3d), pareto_3d[[4]])
+        assert [t.get_text() for t in ax.get_legend().get_texts()] == ["Knee point"]
+        assert path.is_file() and path.with_suffix(".pdf").is_file()
 
-    def test_basic_3d_plot(self, temp_dir, pareto_3d):
-        """Test basic 3D Pareto front plot creation"""
-        save_path = Path(temp_dir) / "pareto_3d.png"
-        plot_pareto_front_3d(pareto_3d, save_path)
-        assert save_path.exists()
-
-    def test_3d_plot_with_knee_point(self, temp_dir, pareto_3d):
-        """Test 3D plot with knee point highlighting"""
-        save_path = Path(temp_dir) / "pareto_3d_knee.png"
-        plot_pareto_front_3d(pareto_3d, save_path, show_knee_point=True)
-        assert save_path.exists()
-
-    def test_3d_plot_custom_labels(self, temp_dir, pareto_3d):
-        """Test 3D plot with custom axis labels"""
-        save_path = Path(temp_dir) / "pareto_3d_labels.png"
-        plot_pareto_front_3d(pareto_3d, save_path, labels=["Obj 1", "Obj 2", "Obj 3"])
-        assert save_path.exists()
-
-    def test_3d_plot_custom_title(self, temp_dir, pareto_3d):
-        """Test 3D plot with custom title"""
-        save_path = Path(temp_dir) / "pareto_3d_title.png"
-        plot_pareto_front_3d(pareto_3d, save_path, title="Custom 3D Title")
-        assert save_path.exists()
-
-    def test_3d_plot_single_point(self, temp_dir):
-        """Test 3D plot with single solution"""
-        single_point = np.array([[1.0, 2.0, 3.0]])
-        save_path = Path(temp_dir) / "pareto_3d_single.png"
-        plot_pareto_front_3d(single_point, save_path)
-        assert save_path.exists()
-
-
-# ============================================================================
-# High-Dimensional (Projections) Tests
-# ============================================================================
+    def test_single_point(self):
+        ax = plot_pareto_front_3d(np.array([[1.0, 2.0, 3.0]]), show_knee_point=True)
+        try:
+            np.testing.assert_array_equal(
+                np.column_stack(ax.collections[1]._offsets3d), [[1, 2, 3]]
+            )
+        finally:
+            plt.close(ax.figure)
 
 
 class TestParetoFrontProjections:
-    """Test high-dimensional Pareto front projection plotting"""
+    def test_projection_pairs_and_export(self, tmp_path, pareto_5d):
+        from itertools import combinations
 
-    def test_4d_projections(self, temp_dir, pareto_4d):
-        """Test 4D Pareto front pairwise projections"""
-        save_path = Path(temp_dir) / "pareto_4d.png"
-        plot_pareto_front_projections(pareto_4d, save_path)
-        assert save_path.exists()
-
-    def test_5d_projections(self, temp_dir, pareto_5d):
-        """Test 5D Pareto front pairwise projections"""
-        save_path = Path(temp_dir) / "pareto_5d.png"
-        plot_pareto_front_projections(pareto_5d, save_path)
-        assert save_path.exists()
-
-    def test_projections_custom_title(self, temp_dir, pareto_4d):
-        """Test projections with custom title"""
-        save_path = Path(temp_dir) / "pareto_4d_title.png"
-        plot_pareto_front_projections(
-            pareto_4d, save_path, title="Custom Projection Title"
+        path = tmp_path / "projections.png"
+        names = ["A", "B", "C", "D", "E"]
+        axes = plot_pareto_front_projections(
+            pareto_5d, path, objective_names=names, title="Objective pairs"
         )
-        assert save_path.exists()
-
-
-# ============================================================================
-# Parallel Coordinates Tests
-# ============================================================================
+        for ax, (i, j) in zip(axes, combinations(range(5), 2)):
+            assert (ax.get_xlabel(), ax.get_ylabel()) == (names[i], names[j])
+            np.testing.assert_array_equal(ax.collections[0].get_offsets(), pareto_5d[:, [i, j]])
+        assert len(axes) == 12
+        assert all(not ax.axison for ax in axes[10:])
+        assert axes[0].figure.get_suptitle() == "Objective pairs"
+        assert path.is_file() and path.with_suffix(".pdf").is_file()
 
 
 class TestParallelCoordinates:
-    """Test parallel coordinates plotting"""
-
-    def test_basic_parallel_coords(self, temp_dir, pareto_2d):
-        """Test basic parallel coordinates plot"""
-        save_path = Path(temp_dir) / "parallel_2d.png"
-        plot_parallel_coordinates(pareto_2d, save_path)
-        assert save_path.exists()
-
-    def test_parallel_coords_3d(self, temp_dir, pareto_3d):
-        """Test parallel coordinates with 3 objectives"""
-        save_path = Path(temp_dir) / "parallel_3d.png"
-        plot_parallel_coordinates(pareto_3d, save_path)
-        assert save_path.exists()
-
-    def test_parallel_coords_5d(self, temp_dir, pareto_5d):
-        """Test parallel coordinates with 5 objectives"""
-        save_path = Path(temp_dir) / "parallel_5d.png"
-        plot_parallel_coordinates(pareto_5d, save_path)
-        assert save_path.exists()
-
-    def test_parallel_coords_custom_labels(self, temp_dir, pareto_3d):
-        """Test parallel coordinates with custom labels"""
-        save_path = Path(temp_dir) / "parallel_labels.png"
-        plot_parallel_coordinates(
-            pareto_3d, save_path, objective_names=["Dose", "Efficiency", "Conformity"]
+    def test_normalization_labels_highlights_and_export(self, tmp_path):
+        front = np.array([[0, 10, 5], [1, 5, 5], [2, 0, 5]])
+        path = tmp_path / "parallel.png"
+        ax = plot_parallel_coordinates(
+            front,
+            path,
+            objective_names=["Dose", "Time", "Error"],
+            highlight_solutions=[0, 2],
         )
-        assert save_path.exists()
+        assert [t.get_text() for t in ax.get_xticklabels()] == ["Dose", "Time", "Error"]
+        np.testing.assert_allclose(
+            [line.get_ydata() for line in ax.lines[3:6]],
+            [[0, 1, 0], [0.5, 0.5, 0], [1, 0, 0]],
+        )
+        highlighted = [line for line in ax.lines if line.get_marker() == "o"]
+        np.testing.assert_array_equal(
+            [line.get_ydata() for line in highlighted], [[0, 1, 0], [1, 0, 0]]
+        )
+        assert path.is_file() and path.with_suffix(".pdf").is_file()
 
-    def test_parallel_coords_highlight(self, temp_dir, pareto_3d):
-        """Test parallel coordinates with highlighted solutions"""
-        save_path = Path(temp_dir) / "parallel_highlight.png"
-        plot_parallel_coordinates(pareto_3d, save_path, highlight_solutions=[0, 2])
-        assert save_path.exists()
-
-    def test_parallel_coords_with_rank(self, temp_dir, pareto_3d):
-        """Test parallel coordinates with dominance rank coloring"""
-        save_path = Path(temp_dir) / "parallel_rank.png"
-        ranks = calculate_dominance_rank(pareto_3d)
-        plot_parallel_coordinates(pareto_3d, save_path, dominance_rank=ranks)
-        assert save_path.exists()
-
-
-# ============================================================================
-# Petal Diagram Tests
-# ============================================================================
+    def test_rank_coloring(self, pareto_3d):
+        ax = plot_parallel_coordinates(pareto_3d, dominance_rank=np.arange(5))
+        try:
+            colors = [line.get_color() for line in ax.lines[3:]]
+            assert len(set(colors)) == 5
+            assert ax.figure.axes[1].get_ylabel() == "Dominance Rank"
+            assert ax.get_legend() is None
+        finally:
+            plt.close(ax.figure)
 
 
 class TestPetalDiagrams:
-    """Test petal (radar) diagram plotting"""
-
-    def test_single_petal_3obj(self, temp_dir, pareto_3d):
-        """Test single solution petal diagram with 3 objectives"""
-        save_path = Path(temp_dir) / "petal_single_3d.png"
-        solution = pareto_3d[0]
-        plot_petal_diagram_single(solution, save_path)
-        assert save_path.exists()
-
-    def test_single_petal_5obj(self, temp_dir, pareto_5d):
-        """Test single solution petal diagram with 5 objectives"""
-        save_path = Path(temp_dir) / "petal_single_5d.png"
-        solution = pareto_5d[0]
-        plot_petal_diagram_single(solution, save_path)
-        assert save_path.exists()
-
-    def test_single_petal_custom_labels(self, temp_dir, pareto_3d):
-        """Test single petal with custom labels"""
-        save_path = Path(temp_dir) / "petal_labels.png"
-        solution = pareto_3d[0]
-        plot_petal_diagram_single(
-            solution, save_path, objective_names=["Dose", "Efficiency", "Conformity"]
+    def test_single_petal_values_labels_and_export(self, tmp_path):
+        path = tmp_path / "petal.png"
+        ax = plot_petal_diagram_single(
+            np.array([1.0, 2.0, 4.0]), path, objective_names=["Dose", "Time", "Error"]
         )
-        assert save_path.exists()
+        assert [t.get_text() for t in ax.get_xticklabels()] == ["Dose", "Time", "Error"]
+        np.testing.assert_allclose([bar.get_height() for bar in ax.patches], [0.75, 0.5, 0.03])
+        assert path.is_file() and path.with_suffix(".pdf").is_file()
 
-    def test_multi_petal(self, temp_dir, pareto_3d):
-        """Test multiple solution petal diagrams"""
-        save_dir = Path(temp_dir) / "petal_multi"
-        plot_petal_diagram_multi(pareto_3d, save_dir, max_solutions=3)
-        assert save_dir.exists()
-        # Should have created individual petal diagrams
-        assert len(list(save_dir.glob("*.png"))) > 0
-
-
-# ============================================================================
-# Metric Calculation Tests
-# ============================================================================
+    def test_multi_petal(self, tmp_path, pareto_3d):
+        fig = plot_petal_diagram_multi(pareto_3d, tmp_path, max_solutions=3)
+        assert len(fig.axes) == 3
+        assert {p.stem for p in tmp_path.glob("*.png")} == {
+            "petal_solution_1",
+            "petal_solution_3",
+            "petal_solution_5",
+            "petal_diagram_multipanel",
+        }
+        assert {p.stem for p in tmp_path.glob("*.pdf")} == {p.stem for p in tmp_path.glob("*.png")}
 
 
 class TestKneePointCalculation:
-    """Test knee point calculation"""
+    def test_knee_uses_normalized_tradeoff(self):
+        # The middle point minimizes the normalized sum, even with unequal units
+        # and a constant objective. A raw sum would incorrectly pick row zero.
+        front = np.array([[0, 10, 7], [200, 2, 7], [1000, 0, 7]])
+        assert calculate_knee_point(front) == 1
 
-    def test_knee_point_2d(self, pareto_2d):
-        """Test knee point calculation for 2D data"""
-        knee_idx = calculate_knee_point(pareto_2d)
-        assert isinstance(knee_idx, (int, np.integer))
-        assert 0 <= knee_idx < len(pareto_2d)
-
-    def test_knee_point_3d(self, pareto_3d):
-        """Test knee point calculation for 3D data"""
-        knee_idx = calculate_knee_point(pareto_3d)
-        assert isinstance(knee_idx, (int, np.integer))
-        assert 0 <= knee_idx < len(pareto_3d)
-
-    def test_knee_point_single_solution(self):
-        """Test knee point with single solution returns index 0"""
-        single = np.array([[1.0, 2.0]])
-        knee_idx = calculate_knee_point(single)
-        assert knee_idx == 0
-
-    def test_knee_point_returns_valid_index(self, pareto_2d):
-        """Test that knee point returns a valid index"""
-        knee_idx = calculate_knee_point(pareto_2d)
-        # Should be able to use it to index the array
-        knee_solution = pareto_2d[knee_idx]
-        assert len(knee_solution) == 2
+    def test_single_solution(self):
+        assert calculate_knee_point(np.array([[1.0, 2.0]])) == 0
 
 
 class TestCrowdingDistance:
-    """Test crowding distance calculation"""
+    def test_interior_distances_and_boundaries(self):
+        front = np.array([[2, 2], [0, 4], [4, 0], [1, 3]], dtype=float)
+        np.testing.assert_allclose(calculate_crowding_distance(front), [1.5, np.inf, np.inf, 1.0])
 
-    def test_crowding_distance_2d(self, pareto_2d):
-        """Test crowding distance for 2D data"""
-        distances = calculate_crowding_distance(pareto_2d)
-        assert len(distances) == len(pareto_2d)
-
-    def test_crowding_distance_3d(self, pareto_3d):
-        """Test crowding distance for 3D data"""
-        distances = calculate_crowding_distance(pareto_3d)
-        assert len(distances) == len(pareto_3d)
-
-    def test_crowding_distance_boundary_infinite(self, pareto_2d):
-        """Test that boundary solutions have infinite crowding distance"""
-        distances = calculate_crowding_distance(pareto_2d)
-        # After sorting, boundary points should have infinite distance
-        assert np.any(np.isinf(distances))
-
-    def test_crowding_distance_single_solution(self):
-        """Test crowding distance with single solution"""
-        single = np.array([[1.0, 2.0]])
-        distances = calculate_crowding_distance(single)
-        assert len(distances) == 1
-        assert np.isinf(distances[0])
-
-    def test_crowding_distance_two_solutions(self):
-        """Test crowding distance with two solutions"""
-        two_points = np.array([[1.0, 2.0], [3.0, 1.0]])
-        distances = calculate_crowding_distance(two_points)
-        assert len(distances) == 2
-        # Both should be infinite (boundaries)
-        assert np.all(np.isinf(distances))
+    @pytest.mark.parametrize("front", [[[1.0, 2.0]], [[1.0, 2.0], [3.0, 1.0]]])
+    def test_small_fronts_are_all_boundaries(self, front):
+        np.testing.assert_array_equal(
+            calculate_crowding_distance(np.array(front)), [np.inf] * len(front)
+        )
 
 
 class TestDominanceRank:
-    """Test dominance rank calculation"""
+    def test_dominance_layers_and_ties(self):
+        front = np.array([[2, 2], [1, 3], [1, 1], [3, 3], [1, 1]])
+        np.testing.assert_array_equal(calculate_dominance_rank(front), [1, 1, 0, 2, 0])
 
-    def test_dominance_rank_simple(self):
-        """Test dominance rank with clear hierarchy"""
-        objectives = np.array(
-            [
-                [1.0, 1.0],  # Rank 0 (dominates all)
-                [2.0, 2.0],  # Rank 1
-                [3.0, 3.0],  # Rank 2
-            ]
-        )
-        ranks = calculate_dominance_rank(objectives)
-        assert ranks[0] == 0
-        assert ranks[1] == 1
-        assert ranks[2] == 2
-
-    def test_dominance_rank_pareto_front(self, pareto_2d):
-        """Test dominance rank for actual Pareto front"""
-        # If this is actually a Pareto front, all should be rank 0
-        # Our test data may have mixed dominance
-        ranks = calculate_dominance_rank(pareto_2d)
-        assert len(ranks) == len(pareto_2d)
-        assert np.min(ranks) == 0  # At least some should be non-dominated
-
-    def test_dominance_rank_all_non_dominated(self):
-        """Test when all solutions are non-dominated"""
-        objectives = np.array(
-            [
-                [1.0, 4.0],
-                [2.0, 3.0],
-                [3.0, 2.0],
-                [4.0, 1.0],
-            ]
-        )
-        ranks = calculate_dominance_rank(objectives)
-        # All should be rank 0
-        np.testing.assert_array_equal(ranks, np.zeros(4))
-
-    def test_dominance_rank_single_solution(self):
-        """Test dominance rank with single solution"""
-        single = np.array([[1.0, 2.0]])
-        ranks = calculate_dominance_rank(single)
-        assert len(ranks) == 1
-        assert ranks[0] == 0
-
-
-# ============================================================================
-# Log File I/O Tests
-# ============================================================================
+    def test_all_non_dominated(self, pareto_2d):
+        np.testing.assert_array_equal(calculate_dominance_rank(pareto_2d), np.zeros(5))
 
 
 class TestLogFileReading:
-    """Test log file reading functionality"""
-
-    def test_read_log_file_basic(self, sample_log_file):
-        """Test basic log file reading"""
-        data = ReadInMultiObjectiveLogFile(sample_log_file)
-
-        assert "Iteration" in data
-        assert "param1" in data
-        assert "param2" in data
-        assert "ObjectiveFunction_1" in data
-        assert "ObjectiveFunction_2" in data
-
-    def test_read_log_file_correct_values(self, sample_log_file):
-        """Test that values are correctly parsed"""
-        data = ReadInMultiObjectiveLogFile(sample_log_file)
-
-        assert data["Iteration"][0] == 0
-        assert data["param1"][0] == 5.0
-        assert data["ObjectiveFunction_1"][0] == 10.0
-
     def test_read_log_file_3_objectives(self, sample_log_file_3obj):
-        """Test reading log file with 3 objectives"""
         data = ReadInMultiObjectiveLogFile(sample_log_file_3obj)
-
-        assert "ObjectiveFunction_3" in data
-        assert len(data["ObjectiveFunction_3"]) == 3
+        assert data["ObjectiveFunction_3"] == [12.0, 11.0, 10.0]
 
 
 class TestLogFileWriting:
@@ -529,61 +321,36 @@ class TestLogFileWriting:
             assert "Objective_3" in lines[0]
 
 
-# ============================================================================
-# Convergence Plotting Tests
-# ============================================================================
-
-
 class TestConvergencePlotting:
-    """Test convergence plotting functions"""
+    def test_objective_convergence(self, tmp_path, sample_log_file_3obj):
+        path = tmp_path / "convergence.png"
+        axes = plot_objective_convergence(sample_log_file_3obj, path, n_objectives=3)
+        assert axes.shape == (2, 2)
+        assert not axes[1, 1].get_visible()
+        for ax, expected in zip(axes.flat, [[10, 9, 8], [15, 14, 13], [12, 11, 10]]):
+            np.testing.assert_array_equal(ax.lines[0].get_ydata(), expected)
+        assert path.is_file() and path.with_suffix(".pdf").is_file()
 
-    def test_objective_convergence(self, temp_dir, sample_log_file):
-        """Test objective convergence plotting"""
-        save_path = Path(temp_dir) / "obj_convergence.png"
-        plot_objective_convergence(sample_log_file, save_path, n_objectives=2)
-        assert save_path.exists()
-
-    def test_objective_convergence_3obj(self, temp_dir, sample_log_file_3obj):
-        """Test objective convergence with 3 objectives"""
-        save_path = Path(temp_dir) / "obj_convergence_3d.png"
-        plot_objective_convergence(sample_log_file_3obj, save_path, n_objectives=3)
-        assert save_path.exists()
-
-    def test_parameter_convergence(self, temp_dir, sample_log_file):
-        """Test parameter convergence plotting"""
-        save_path = Path(temp_dir) / "param_convergence.png"
-        plot_parameter_convergence(sample_log_file, save_path, ["param1", "param2"])
-        assert save_path.exists()
-
-
-# ============================================================================
-# Style and Configuration Tests
-# ============================================================================
+    def test_parameter_convergence(self, tmp_path, sample_log_file):
+        path = tmp_path / "parameters.png"
+        axes = plot_parameter_convergence(sample_log_file, path, ["param1", "param2"])
+        assert [ax.get_ylabel() for ax in axes] == ["param1", "param2"]
+        np.testing.assert_array_equal(
+            axes[0].collections[0].get_offsets()[:, 1], [5, 4.5, 4, 3.5, 3]
+        )
+        np.testing.assert_array_equal(axes[0].lines[0].get_ydata(), [4.5, 4.25, 4, 3.75, 3.5])
+        assert path.is_file() and path.with_suffix(".pdf").is_file()
 
 
 class TestStyleSetup:
     """Test style configuration functions"""
-
-    def test_apply_default_style(self):
-        """Default apply_style call should not raise."""
-        apply_style()
-
-    def test_apply_fast_style(self):
-        """Explicit fast style setup runs without error."""
-        apply_style("fast")
-
-    def test_apply_publication_style(self):
-        """Explicit publication style setup runs without error."""
-        apply_style("publication")
 
     def test_invalid_style_raises(self):
         """Only fast/publication styles should be accepted."""
         with pytest.raises(ValueError):
             apply_style("journal")
 
-    def test_saving_publication_plot_does_not_emit_tight_layout_warning(
-        self, temp_dir, pareto_2d
-    ):
+    def test_saving_publication_plot_does_not_emit_tight_layout_warning(self, temp_dir, pareto_2d):
         """Saving should stay quiet even when constrained layout is active."""
         apply_style("publication", variant="clean")
         save_path = Path(temp_dir) / "quiet_pareto.png"
@@ -596,11 +363,10 @@ class TestStyleSetup:
         assert "figure layout has changed to tight" not in warning_text
 
     def test_medicalphysics_style_uses_single_column_size(self):
-        """Medical Physics variant authors at 2x the 80 mm single column.
+        """Medical Physics variant authors at the 80 mm single column.
 
-        The journal scales the figure down to the 80 mm column, which turns the
-        mandated >=20 pt fonts into ~10 pt legible print text. We therefore
-        author at twice the column width rather than at 80 mm directly.
+        The journal does not rescale typeset figures, so the 10 pt fonts print
+        at 10 pt.
         """
         from TopasMOO.plotting.style import MEDICAL_PHYSICS_SINGLE_COL_WIDTH
 
@@ -609,32 +375,74 @@ class TestStyleSetup:
         assert matplotlib.rcParams["figure.figsize"][0] == pytest.approx(
             MEDICAL_PHYSICS_SINGLE_COL_WIDTH
         )
-        assert matplotlib.rcParams["font.size"] >= 20
+        assert matplotlib.rcParams["font.size"] == 10
         apply_style("fast")
 
+    def test_medicalphysics_saves_at_exact_column_width(self, temp_dir):
+        """The saved PNG is exactly 80 mm wide, since the journal won't rescale."""
+        front = np.column_stack([np.linspace(0, 1, 5), np.linspace(1, 0, 5)])
+        save_path = Path(temp_dir) / "medphys.png"
+        try:
+            apply_style("publication", variant="medicalphysics")
+            plot_pareto_front_2d(front, save_path, show_knee_point=True)
+        finally:
+            apply_style("fast")
+        width_px = mpimg.imread(save_path).shape[1]
+        assert width_px / 600 * 25.4 == pytest.approx(80, abs=0.1)
 
-# ============================================================================
-# Parameter-Objective Correlation Tests
-# ============================================================================
+    @pytest.mark.parametrize("show_knee_point", [False, True])
+    def test_medicalphysics_markers_and_legend_follow_style(self, show_knee_point):
+        """Scatter edges and legend frame come from the style, not hardcoded."""
+        from TopasMOO.plotting.style import marker_edge_width
+
+        front = np.column_stack([np.linspace(0, 1, 5), np.linspace(1, 0, 5)])
+        try:
+            apply_style("publication", variant="medicalphysics")
+            assert marker_edge_width(0.25) == 0
+            ax = plot_pareto_front_2d(front, true_front=front, show_knee_point=show_knee_point)
+            (legend,) = ax.figure.legends
+            assert not legend.get_frame_on()
+            ax.figure.canvas.draw()
+            renderer = ax.figure.canvas.get_renderer()
+            legend_box = legend.get_window_extent(renderer)
+            assert legend_box.y1 <= ax.get_tightbbox(renderer).y0
+            assert legend_box.x0 >= ax.figure.bbox.x0
+            assert legend_box.x1 <= ax.figure.bbox.x1
+            assert all((c.get_linewidths() == 0).all() for c in ax.collections)
+            plt.close(ax.figure)
+
+            apply_style("publication", variant="clean")
+            assert marker_edge_width(0.25) > 0
+        finally:
+            apply_style("fast")
 
 
 class TestParameterObjectiveCorrelation:
-    """Test parameter-objective correlation plotting"""
-
-    def test_basic_correlation_plot(self, temp_dir, decision_vars, pareto_2d):
-        """Test basic correlation plot"""
-        save_path = Path(temp_dir) / "correlation.png"
-        plot_parameter_objective_correlation(decision_vars, pareto_2d, save_path)
-        assert save_path.exists()
+    def test_correlation_data_labels_and_export(self, tmp_path, decision_vars, pareto_2d):
+        path = tmp_path / "correlation.png"
+        axes = plot_parameter_objective_correlation(
+            decision_vars,
+            pareto_2d,
+            path,
+            parameter_names=["x", "y"],
+            objective_names=["f1", "f2"],
+        )
+        assert axes.shape == (2, 2)
+        assert [ax.get_xlabel() for ax in axes[-1]] == ["x", "y"]
+        assert [ax.get_ylabel() for ax in axes[:, 0]] == ["f1", "f2"]
+        for i, j in np.ndindex(2, 2):
+            np.testing.assert_array_equal(
+                axes[i, j].collections[0].get_offsets(),
+                np.column_stack([decision_vars[:, j], pareto_2d[:, i]]),
+            )
+        assert path.is_file() and path.with_suffix(".pdf").is_file()
 
 
 class TestDecisionHeatmap:
     """Test decision heatmap layout."""
 
     def test_mean_median_legend_sits_right_of_boxplot(self, decision_vars):
-        _, box_ax = plot_decision_heatmap(
-            decision_vars, parameter_names=["x1", "x2"]
-        )
+        _, box_ax = plot_decision_heatmap(decision_vars, parameter_names=["x1", "x2"])
         figure = box_ax.figure
 
         try:
@@ -657,133 +465,15 @@ class TestDecisionHeatmap:
         assert width >= 1800
         assert height >= 900
 
-    def test_correlation_with_names(self, temp_dir, decision_vars, pareto_2d):
-        """Test correlation plot with custom names"""
-        save_path = Path(temp_dir) / "correlation_names.png"
-        plot_parameter_objective_correlation(
-            decision_vars,
-            pareto_2d,
-            save_path,
-            parameter_names=["x", "y"],
-            objective_names=["f1", "f2"],
-        )
-        assert save_path.exists()
-
-
-# ============================================================================
-# Edge Cases and Error Handling Tests
-# ============================================================================
-
 
 class TestEdgeCases:
-    """Test edge cases and error handling"""
-
-    def test_empty_array_handling(self, temp_dir):
-        """Test handling of empty arrays"""
-        empty = np.array([]).reshape(0, 2)
-        save_path = Path(temp_dir) / "empty.png"
-        # Should handle gracefully (may skip plotting)
+    def test_empty_front_has_no_points(self):
+        ax = plot_pareto_front_2d(np.empty((0, 2)))
         try:
-            plot_pareto_front_2d(empty, save_path)
-        except (ValueError, IndexError):
-            pass  # Expected for empty arrays
-
-    def test_very_small_values(self, temp_dir):
-        """Test with very small objective values"""
-        small_values = np.array([[1e-10, 2e-10], [3e-10, 1e-10]])
-        save_path = Path(temp_dir) / "small_values.png"
-        plot_pareto_front_2d(small_values, save_path)
-        assert save_path.exists()
-
-    def test_very_large_values(self, temp_dir):
-        """Test with very large objective values"""
-        large_values = np.array([[1e10, 2e10], [3e10, 1e10]])
-        save_path = Path(temp_dir) / "large_values.png"
-        plot_pareto_front_2d(large_values, save_path)
-        assert save_path.exists()
-
-    def test_negative_values(self, temp_dir):
-        """Test with negative objective values"""
-        negative = np.array([[-1.0, -2.0], [-3.0, -1.0]])
-        save_path = Path(temp_dir) / "negative.png"
-        plot_pareto_front_2d(negative, save_path)
-        assert save_path.exists()
-
-    def test_mixed_values(self, temp_dir):
-        """Test with mixed positive/negative values"""
-        mixed = np.array([[-1.0, 2.0], [3.0, -1.0], [0.0, 0.0]])
-        save_path = Path(temp_dir) / "mixed.png"
-        plot_pareto_front_2d(mixed, save_path)
-        assert save_path.exists()
-
-    def test_identical_solutions(self, temp_dir):
-        """Test with identical solutions"""
-        identical = np.array([[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]])
-        save_path = Path(temp_dir) / "identical.png"
-        plot_pareto_front_2d(identical, save_path)
-        assert save_path.exists()
-
-
-# ============================================================================
-# Integration Tests
-# ============================================================================
-
-
-class TestIntegration:
-    """Integration tests combining multiple functions"""
-
-    def test_full_workflow_2d(
-        self, temp_dir, pareto_2d, decision_vars, sample_log_file
-    ):
-        """Test complete 2D visualization workflow"""
-        # Create all 2D visualizations
-        save_dir = Path(temp_dir) / "full_workflow"
-        save_dir.mkdir()
-
-        # Pareto front
-        plot_pareto_front_2d(pareto_2d, save_dir / "pareto.png")
-
-        # Parallel coordinates
-        plot_parallel_coordinates(pareto_2d, save_dir / "parallel.png")
-
-        # Convergence
-        plot_objective_convergence(
-            sample_log_file, save_dir / "convergence.png", n_objectives=2
-        )
-        plot_parameter_convergence(
-            sample_log_file, save_dir / "param_conv.png", ["param1", "param2"]
-        )
-
-        # Log Pareto front
-        LogParetoFrontToFile(
-            save_dir / "pareto.txt", pareto_2d, ["p1", "p2"], n_objectives=2
-        )
-
-        # Verify all files created
-        assert (save_dir / "pareto.png").exists()
-        assert (save_dir / "parallel.png").exists()
-        assert (save_dir / "convergence.png").exists()
-        assert (save_dir / "param_conv.png").exists()
-        assert (save_dir / "pareto.txt").exists()
-
-    def test_full_workflow_3d(self, temp_dir, pareto_3d):
-        """Test complete 3D visualization workflow"""
-        save_dir = Path(temp_dir) / "full_workflow_3d"
-        save_dir.mkdir()
-
-        # 3D Pareto front
-        plot_pareto_front_3d(pareto_3d, save_dir / "pareto_3d.png")
-
-        # Parallel coordinates
-        plot_parallel_coordinates(pareto_3d, save_dir / "parallel_3d.png")
-
-        # Petal diagrams
-        plot_petal_diagram_multi(pareto_3d, save_dir / "petals", max_solutions=2)
-
-        # Verify files created
-        assert (save_dir / "pareto_3d.png").exists()
-        assert (save_dir / "parallel_3d.png").exists()
-        assert (save_dir / "petals").exists()
+            ax.figure.canvas.draw()
+            assert ax.collections[0].get_offsets().shape == (0, 2)
+        finally:
+            plt.close(ax.figure)
 
 
 if __name__ == "__main__":

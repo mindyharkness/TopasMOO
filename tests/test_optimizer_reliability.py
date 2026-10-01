@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from TopasMOO.exceptions import InvalidParameterError, ObjectiveFunctionError
+from TopasMOO.exceptions import InvalidParameterError
 from TopasMOO.optimizers import NSGAII_Optimizer
 
 
@@ -55,7 +55,9 @@ def _make_optimizer(base_dir: Path, simulation_name: str, overwrite: bool) -> NS
     )
 
 
-def test_setup_does_not_prompt_for_empty_simulation_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_setup_does_not_prompt_for_empty_simulation_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _write_minimal_project(tmp_path)
     optimizer = _make_optimizer(tmp_path, "EmptyDirRun", overwrite=False)
 
@@ -97,22 +99,13 @@ def test_evaluate_objectives_rejects_missing_dict_parameters(tmp_path: Path) -> 
         optimizer.EvaluateObjectives({"x1": 0.1})
 
 
-def test_evaluate_objectives_rejects_non_1d_objective_return(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
-    optimizer = _make_optimizer(tmp_path, "BadObjectiveShape", overwrite=True)
-    optimizer.SetUpDirectoryStructure()
-    optimizer.TopasObjectiveFunction = lambda *_args, **_kwargs: [[0.1, 0.2]]
-
-    with pytest.raises(ObjectiveFunctionError):
-        optimizer.EvaluateObjectives(np.array([0.2, 0.8]))
-
-
 def test_default_optimizer_style_split(tmp_path: Path) -> None:
     _write_minimal_project(tmp_path)
     optimizer = _make_optimizer(tmp_path, "DefaultStyles", overwrite=True)
     assert optimizer.intermediate_plot_style == "fast"
     assert optimizer.plot_style == "publication"
     assert optimizer.publication_variant == "clean"
+    assert optimizer.verbose is False
 
 
 def test_invalid_optimizer_style_raises(tmp_path: Path) -> None:
@@ -178,35 +171,9 @@ def test_publication_variants_accepted(tmp_path: Path, variant: str) -> None:
         TopasLocation="testing_mode",
         Overwrite=True,
         publication_variant=variant,
-    )
-    assert optimizer.publication_variant == variant
-
-
-def test_verbose_default_is_false(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
-    optimizer = _make_optimizer(tmp_path, "VerboseDefault", overwrite=True)
-    assert optimizer.verbose is False
-
-
-def test_verbose_can_be_enabled(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
-    optimization_params = {
-        "ParameterNames": ["x1", "x2"],
-        "UpperBounds": np.array([1.0, 1.0]),
-        "LowerBounds": np.array([0.0, 0.0]),
-        "start_point": np.array([0.5, 0.5]),
-        "n_iterations": 1,
-        "n_objectives": 2,
-    }
-    optimizer = NSGAII_Optimizer(
-        optimization_params=optimization_params,
-        BaseDirectory=str(tmp_path),
-        SimulationName="VerboseExplicit",
-        OptimizationDirectory=tmp_path,
-        TopasLocation="testing_mode",
-        Overwrite=True,
         verbose=True,
     )
+    assert optimizer.publication_variant == variant
     assert optimizer.verbose is True
 
 

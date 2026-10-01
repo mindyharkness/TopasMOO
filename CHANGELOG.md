@@ -43,12 +43,22 @@ BoTorch, offered alongside NSGA-II from a shared base class.
   uniform rejection sampling in the feasible region (raising if `10_000 *
   n_init` draws come up short), an infeasible `start_point` is skipped with a
   warning, and only feasible observations are eligible for the reported front
-  and hypervolume history. `MOBOOptimizer` rejects the base-class
-  `n_constraints > 0` at construction rather than silently ignoring
-  constraints the caller believes are enforced.
+  and hypervolume history.
+- **Measured constraints in `MOBOOptimizer`.** `n_constraints=k` now works as
+  it does for NSGA-II/III: the callback (or `tell`) returns `n_objectives + k`
+  values, constraints last, with `g <= 0` feasible. Each constraint gets its
+  own GP and is passed to qLogNEHVI / qLogNParEGO as a BoTorch outcome
+  constraint. Only observations feasible under both analytical and measured
+  constraints are eligible for the front and hypervolume. Constraint
+  observations (`train_G`) are checkpointed; older unconstrained checkpoints
+  still load for unconstrained runs.
+- **Recovery from early evaluation failures in MOBO.** With fewer than two
+  successful evaluations, `ask()` logs a warning and draws the next batch as
+  additional initial samples instead of fitting a GP. If the batch budget runs
+  out first, `run()` raises `RuntimeError` rather than finalizing an empty
+  result.
 - **MOBO checkpoint / resume.** State is written to `logs/MOBOCheckpoint.npz`
-  (plus a `.meta.json` sidecar) and validated against the current problem on
-  load. A new `_restore_algorithm_state()` hook on `TopasMOOBaseClass` gives
+  and validated against the current problem on load. A new `_restore_algorithm_state()` hook on `TopasMOOBaseClass` gives
   resume a single trigger, fired from `SetUpDirectoryStructure()`.
 - **Prospective GP prediction correlation plots.** `MOBOOptimizer` records the
   posterior mean for every acquisition candidate before evaluation and carries
@@ -94,6 +104,10 @@ BoTorch, offered alongside NSGA-II from a shared base class.
   final front, so a long MOBO run no longer shows a monitoring front that
   contradicts its own result. NSGA-II's behaviour is unchanged (it carries
   penalized and infeasible designs in its population by design).
+- The `medicalphysics` publication variant now authors at the journal's true
+  80 mm column with 10 pt text and saves at that exact width (no tight crop).
+  Plot functions take scatter marker edges from the style (`lines.markeredgewidth`),
+  and `plot_pareto_front_2d` places its legend below the axes when it owns the figure.
 - `plot_hypervolume_convergence()` x-axis label is now "Generation / batch",
   reflecting that the history holds one entry per algorithm step for either
   optimizer.

@@ -133,7 +133,7 @@ Two base styles, with four `publication` variants:
   - `clean` (default) — subtle grid, sans-serif, colorblind-safe palette
   - `nature` — bold sans-serif, high contrast
   - `ieee` — Computer Modern mathtext serif, boxed axes, dense ticks
-  - `medicalphysics` — large sans-serif text, journal single-column authoring size
+  - `medicalphysics` — 10 pt sans-serif text, authored at the journal's 80 mm column
 
 Optimizer defaults: intermediate plots use `fast`; final plots use
 `publication` / `clean`. Change the variant with `publication_variant=` on the

@@ -19,6 +19,7 @@ from .style import (
     format_publication_axes,
     line_width,
     marker_area,
+    marker_edge_width,
     scale_figsize,
 )
 
@@ -143,7 +144,7 @@ def plot_gp_prediction_correlation(
                 s=marker_area(1.0),
                 alpha=0.75,
                 edgecolors="black",
-                linewidth=line_width(0.2),
+                linewidth=marker_edge_width(0.2),
                 zorder=3,
             )
             ax.plot(
