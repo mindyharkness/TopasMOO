@@ -88,8 +88,6 @@ class TopasMOOBaseClass(ABC):
         KeepAllResults=True,
         plot_frequency=10,
         final_plots=None,
-        plot_style="publication",
-        intermediate_plot_style="fast",
         publication_variant="clean",
         n_constraints=0,
         on_evaluation_failure="penalize",
@@ -129,15 +127,10 @@ class TopasMOOBaseClass(ABC):
             an iterable of keys. See
             :func:`~TopasMOO.plotting.GenerateComprehensiveVisualizations` for all
             recognized keys.
-        :param plot_style: Final-figure style for end-of-run visualizations.
-            One of ``"fast"`` or ``"publication"`` (default).
-        :param intermediate_plot_style: Style for iterative plots generated during
-            optimization. One of ``"fast"`` (default) or ``"publication"``.
-        :param publication_variant: Variant of the ``"publication"`` style. One of
-            ``"clean"`` (default), ``"nature"``, ``"ieee"``, or
+        :param publication_variant: Plot style for the run monitor and the final
+            figures. One of ``"clean"`` (default), ``"ieee"``, or
             ``"medicalphysics"`` -- see :mod:`TopasMOO.plotting.style` for what
             each looks like.
-            Ignored when both styles are ``"fast"``.
         :param n_constraints: Number of inequality constraints (``g(x) <= 0`` is
             feasible, pymoo / TopasMOO convention). When ``> 0`` the user
             ``TopasObjectiveFunction`` must return ``n_objectives +
@@ -318,21 +311,8 @@ class TopasMOOBaseClass(ABC):
             )
         self.plot_frequency = int(plot_frequency)
         self.final_plots = final_plots
-        self.plot_style = plot_style
-        self.intermediate_plot_style = intermediate_plot_style
         self.publication_variant = publication_variant
-        valid_plot_styles = {"fast", "publication"}
         valid_publication_variants = set(available_publication_variants())
-        if self.plot_style not in valid_plot_styles:
-            raise InvalidParameterError(
-                f"plot_style must be one of {sorted(valid_plot_styles)}. "
-                f"Got '{self.plot_style}'."
-            )
-        if self.intermediate_plot_style not in valid_plot_styles:
-            raise InvalidParameterError(
-                f"intermediate_plot_style must be one of {sorted(valid_plot_styles)}. "
-                f"Got '{self.intermediate_plot_style}'."
-            )
         if self.publication_variant not in valid_publication_variants:
             raise InvalidParameterError(
                 f"publication_variant must be one of "
@@ -800,7 +780,7 @@ class TopasMOOBaseClass(ABC):
         evaluated, eligible, _failed = self.evaluation_history()
         if not len(evaluated):
             return
-        apply_style(self.intermediate_plot_style, variant=self.publication_variant)
+        apply_style("publication", variant=self.publication_variant)
         plot_run_monitor(
             evaluated,
             Path(self.BaseDirectory) / self.SimulationName / "logs" / "RunMonitor",
@@ -832,7 +812,7 @@ class TopasMOOBaseClass(ABC):
 
     def GenerateFinalVisualizations(self):
         """Produce publication-style figures under ``logs/FinalResults``."""
-        apply_style(self.plot_style, variant=self.publication_variant)
+        apply_style("publication", variant=self.publication_variant)
 
         SaveLoc = (
             Path(self.BaseDirectory) / self.SimulationName / "logs" / "FinalResults"

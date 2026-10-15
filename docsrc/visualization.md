@@ -90,22 +90,18 @@ final GP to its own training data.
 
 ## Styling
 
-Two base styles, with four `publication` variants:
+One `publication` style, with three variants:
 
-- `fast` — cleaned-up matplotlib defaults for the in-run monitor
-- `publication`:
-  - `clean` (default) — subtle grid, sans-serif, colorblind-safe palette
-  - `nature` — bold sans-serif, high contrast
-  - `ieee` — Computer Modern mathtext serif, boxed axes, dense ticks
-  - `medicalphysics` — follows the [Medical Physics author guidelines](https://aapm.onlinelibrary.wiley.com/hub/journal/24734209/about/author-guidelines):
-    sans-serif text (Arial/Helvetica/Calibri), no bold, figures exactly 80 mm
-    (single column) or 180 mm (double column; multi-panel grids snap to this)
-    wide so text prints at 10 pt or larger, (a), (b), ... labels on the parts of
-    multi-panel figures, 600 dpi, and fonts embedded as TrueType
+- `clean` (default) — subtle grid, sans-serif, colorblind-safe palette
+- `ieee` — Times-style serif, boxed axes, dense ticks
+- `medicalphysics` — follows the [Medical Physics author guidelines](https://aapm.onlinelibrary.wiley.com/hub/journal/24734209/about/author-guidelines):
+  sans-serif text (Arial/Helvetica/Calibri), no bold, figures exactly 80 mm
+  (single column) or 180 mm (double column; multi-panel grids snap to this)
+  wide so text prints at 10 pt or larger, (a), (b), ... labels on the parts of
+  multi-panel figures, 600 dpi, and fonts embedded as TrueType
 
-Optimizer defaults: the run monitor uses `fast`; final figures use
-`publication` / `clean`. Change the variant with `publication_variant=` on the
-optimizer constructor, or:
+The run monitor and the final figures use the same variant. Choose it with
+`publication_variant=` on the optimizer constructor, or:
 
 ```python
 from TopasMOO.plotting.style import apply_style

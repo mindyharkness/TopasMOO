@@ -1,19 +1,10 @@
-"""Two-style plotting system for TopasMOO with publication variants.
+"""TopasMOO plotting style: ``"publication"``, with selectable variants.
 
-Available styles
-----------------
-``"fast"``
-    Cleaned-up matplotlib-default look for in-loop plotting during optimization.
-``"publication"``
-    Publication-grade style with selectable variants:
-
-    * ``"clean"``  — Modern clean: subtle grid, sans-serif, colorblind-safe palette.
-    * ``"nature"`` — Modern Nature/Science: bold sans-serif, high contrast.
-    * ``"ieee"``  — Engineering/IEEE: Computer Modern serif, boxed axes,
-      dense ticks (uses mathtext 'cm' fontset; no LaTeX install required).
-    * ``"medicalphysics"`` — follows the Medical Physics (AAPM) figure guidelines:
-      80 mm / 180 mm column widths, sans-serif text no smaller than 10 pt as
-      printed, no bold, multi-panel parts labeled (a), (b), ...
+* ``"clean"``  — Modern clean: subtle grid, sans-serif, colorblind-safe palette.
+* ``"ieee"``  — Engineering/IEEE: Times-style serif, boxed axes, dense ticks.
+* ``"medicalphysics"`` — follows the Medical Physics (AAPM) figure guidelines:
+  80 mm / 180 mm column widths, sans-serif text no smaller than 10 pt as
+  printed, no bold, multi-panel parts labeled (a), (b), ...
 
 Styles are bundled as Matplotlib style sheets so they do not require a LaTeX
 installation or third-party style packages at render time.
@@ -40,19 +31,12 @@ _STYLE_DIR = Path(__file__).parent
 
 _PUBLICATION_VARIANTS = {
     "clean": _STYLE_DIR / "topasmoo_pub_clean.mplstyle",
-    "nature": _STYLE_DIR / "topasmoo_pub_nature.mplstyle",
     "ieee": _STYLE_DIR / "topasmoo_pub_ieee.mplstyle",
     "medicalphysics": _STYLE_DIR / "topasmoo_pub_medicalphysics.mplstyle",
 }
 
-_STYLE_FILES = {
-    "fast": _STYLE_DIR / "topasmoo_fast.mplstyle",
-    "publication": _PUBLICATION_VARIANTS["clean"],
-}
-
 DEFAULT_PUBLICATION_VARIANT = "clean"
 
-_active_style: str = "fast"
 _active_publication_variant: str = DEFAULT_PUBLICATION_VARIANT
 
 SINGLE_COL_WIDTH = 3.5
@@ -85,14 +69,14 @@ def available_publication_variants() -> list[str]:
 
 
 def _medical_physics_active() -> bool:
-    return _active_style == "publication" and _active_publication_variant == "medicalphysics"
+    return _active_publication_variant == "medicalphysics"
 
 
 def scale_figsize(width: float, height: float) -> tuple[float, float]:
     """Scale a standard ``(width, height)`` in inches to the active style.
 
     Plotting functions size panels in standard single-column units; this keeps
-    them unchanged for the clean/nature/ieee styles. For Medical Physics the
+    them unchanged for the clean/ieee styles. For Medical Physics the
     width snaps to the journal's 80 mm column (anything up to a standard single
     column) or 180 mm column (anything wider, including multi-panel grids). A
     figure is then never wider than the column, so the journal never shrinks
@@ -158,21 +142,17 @@ def style_colors(n: int) -> list:
     return [cycle[i % len(cycle)] for i in range(n)]
 
 
-def _resolve_style_file(style: str, variant: str | None = None) -> Path:
-    """Return the .mplstyle Path for *style* (and *variant* for publication)."""
-    if style not in _STYLE_FILES:
+def _resolve_style_file(style: str = "publication", variant: str | None = None) -> Path:
+    """Return the .mplstyle Path for *variant* (default: the active one)."""
+    if style != "publication":
+        raise ValueError(f"Unknown style '{style}'. The only style is 'publication'.")
+    chosen_variant = variant or _active_publication_variant
+    if chosen_variant not in _PUBLICATION_VARIANTS:
         raise ValueError(
-            f"Unknown style '{style}'. Choose from: {list(_STYLE_FILES)}"
+            f"Unknown publication variant '{chosen_variant}'. "
+            f"Choose from: {list(_PUBLICATION_VARIANTS)}"
         )
-    if style == "publication":
-        chosen_variant = variant or _active_publication_variant
-        if chosen_variant not in _PUBLICATION_VARIANTS:
-            raise ValueError(
-                f"Unknown publication variant '{chosen_variant}'. "
-                f"Choose from: {list(_PUBLICATION_VARIANTS)}"
-            )
-        return _PUBLICATION_VARIANTS[chosen_variant]
-    return _STYLE_FILES[style]
+    return _PUBLICATION_VARIANTS[chosen_variant]
 
 
 def apply_style(
@@ -181,27 +161,17 @@ def apply_style(
 ) -> None:
     """Apply a TopasMOO plotting style globally.
 
-    When *style* is given it becomes the new active style for this session.
-    When called with no argument the previously set active style is reapplied.
+    *variant* becomes the active variant for this session; without one the
+    active variant is reapplied.
 
-    :param style: ``"fast"`` or ``"publication"``. If *None*, reapplies the
-        current active style.
-    :param variant: Only used when *style* is ``"publication"``. One of
-        ``"clean"`` (default), ``"nature"``, ``"ieee"``,
-        or ``"medicalphysics"``.
+    :param style: ``"publication"`` (the only style) or *None*.
+    :param variant: ``"clean"`` (default), ``"ieee"``, or ``"medicalphysics"``.
     """
-    global _active_style, _active_publication_variant
+    global _active_publication_variant
 
-    if style is not None:
-        _resolve_style_file(style, variant)
-        _active_style = style
-        if style == "publication" and variant is not None:
-            _active_publication_variant = variant
-    elif variant is not None and _active_style == "publication":
-        _resolve_style_file("publication", variant)
+    style_file = _resolve_style_file(style or "publication", variant)
+    if variant is not None:
         _active_publication_variant = variant
-
-    style_file = _resolve_style_file(_active_style, _active_publication_variant)
 
     # Reset to matplotlib defaults first so each style is self-contained;
     # otherwise settings a style omits (e.g. a bold label weight from a
@@ -216,20 +186,17 @@ def publication_style(
 ):
     """Context manager that temporarily applies a TopasMOO style.
 
-    :param style: Style name (see :func:`apply_style`). Defaults to the current
-        active style.
-    :param variant: Publication variant (see :func:`apply_style`). Only used when
-        the active style is ``"publication"``.
+    :param style: ``"publication"`` (the only style) or *None*.
+    :param variant: Publication variant (see :func:`apply_style`). Defaults to
+        the active variant.
 
     .. code-block:: python
 
-        >>> with publication_style("publication", variant="nature"):
+        >>> with publication_style("publication", variant="ieee"):
         ...     fig, ax = plt.subplots()
         ...     ax.plot([0, 1], [0, 1])
     """
-    chosen_style = style if style is not None else _active_style
-    chosen_variant = variant if variant is not None else _active_publication_variant
-    style_file = _resolve_style_file(chosen_style, chosen_variant)
+    style_file = _resolve_style_file(style or "publication", variant)
     # Reset to defaults first (see apply_style) so the style is self-contained.
     with plt.style.context(["default", str(style_file)]):
         yield

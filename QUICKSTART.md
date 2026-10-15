@@ -36,7 +36,7 @@ optimizer = NSGAII_Optimizer(
     TopasLocation='testing_mode',                    # use a real path for TOPAS
     Overwrite=True,
     pop_size=10,
-    publication_variant='clean',                     # 'clean' | 'nature' | 'ieee' | 'medicalphysics'
+    publication_variant='clean',                     # 'clean' | 'ieee' | 'medicalphysics'
 )
 
 results = optimizer.RunOptimization()

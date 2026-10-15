@@ -362,7 +362,7 @@ class TestStyleSetup:
     """Test style configuration functions"""
 
     def test_invalid_style_raises(self):
-        """Only fast/publication styles should be accepted."""
+        """Only the publication style is accepted."""
         with pytest.raises(ValueError):
             apply_style("journal")
 
@@ -392,7 +392,7 @@ class TestStyleSetup:
             MEDICAL_PHYSICS_SINGLE_COL_WIDTH
         )
         assert matplotlib.rcParams["font.size"] == 10
-        apply_style("fast")
+        apply_style("publication", variant="clean")
 
     def test_medicalphysics_saves_at_exact_column_width(self, temp_dir):
         """The saved PNG is exactly 80 mm wide, since the journal won't rescale."""
@@ -402,7 +402,7 @@ class TestStyleSetup:
             apply_style("publication", variant="medicalphysics")
             plot_pareto_front_2d(front, save_path, show_knee_point=True)
         finally:
-            apply_style("fast")
+            apply_style("publication", variant="clean")
         width_px = mpimg.imread(save_path).shape[1]
         assert width_px / 600 * 25.4 == pytest.approx(80, abs=0.1)
 
@@ -416,7 +416,7 @@ class TestStyleSetup:
             double = scale_figsize(DOUBLE_COL_WIDTH, 5.2)
             grid = scale_figsize(3 * SINGLE_COL_WIDTH, 2.8)
         finally:
-            apply_style("fast")
+            apply_style("publication", variant="clean")
         assert single[0] * 25.4 == pytest.approx(80)
         assert double[0] * 25.4 == pytest.approx(180)
         assert grid[0] * 25.4 == pytest.approx(180)
@@ -434,7 +434,7 @@ class TestStyleSetup:
             table = plot_solution_table(pareto_3d, decision_vars, tmp_path / "table")
             parallel = plot_parallel_coordinates(pareto_3d, tmp_path / "par", decision_vars=decision_vars)
         finally:
-            apply_style("fast")
+            apply_style("publication", variant="clean")
         for fig in (axes[0].figure, table, parallel.figure):
             sizes = [t.get_fontsize() for t in fig.findobj(Text) if t.get_visible() and t.get_text()]
             assert min(sizes) >= 10
@@ -458,7 +458,7 @@ class TestStyleSetup:
             apply_style("publication", variant="clean")
             assert marker_edge_width(0.25) > 0
         finally:
-            apply_style("fast")
+            apply_style("publication", variant="clean")
 
 
 class TestParameterObjectiveCorrelation:

@@ -5,7 +5,7 @@ No TOPAS or optimizer run is required.
 
 Outputs (default: ``<repo>/style_previews/``, gitignored):
 
-``styles/`` — the same Pareto front in ``fast`` and each ``publication`` variant
+``styles/`` — the same Pareto front in each ``publication`` variant
 ``suite_2_objectives/`` — ``final_plots="all"`` for a constrained 2-objective run,
   plus the in-run monitor
 ``suite_3_objectives/`` — the same for a 3-objective run (pair projections)
@@ -37,7 +37,6 @@ from TopasMOO.plotting.style import apply_style, available_publication_variants
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO_ROOT / "style_previews"
-STYLES = [("fast", None), *[("publication", v) for v in available_publication_variants()]]
 
 
 def write_log(path: Path, X: np.ndarray, F: np.ndarray, names: list[str]) -> None:
@@ -91,9 +90,9 @@ def render(out_dir: Path) -> None:
     f1 = np.linspace(0, 1, 40, endpoint=False)
     front = np.c_[f1, 1 - np.sqrt(f1)]
     true_front = np.c_[np.linspace(0, 1, 200), 1 - np.sqrt(np.linspace(0, 1, 200))]
-    for style, variant in STYLES:
-        apply_style(style, variant=variant)
-        folder = out_dir / "styles" / (style if variant is None else f"{style}_{variant}")
+    for variant in available_publication_variants():
+        apply_style("publication", variant=variant)
+        folder = out_dir / "styles" / variant
         folder.mkdir(parents=True, exist_ok=True)
         plot_pareto_front_2d(front, folder / "pareto_front_zdt1",
                              true_front=true_front, objective_names=["$f_1$", "$f_2$"])

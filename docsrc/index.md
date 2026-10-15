@@ -61,7 +61,7 @@ optimizer = NSGAII_Optimizer(
     OptimizationDirectory=Path(__file__).parent,
     TopasLocation='~/topas',
     pop_size=20,
-    publication_variant='clean',  # 'clean' | 'nature' | 'ieee'
+    publication_variant='clean',  # 'clean' | 'ieee' | 'medicalphysics'
     verbose=False,                # set True to enable per-generation pymoo output
 )
 
@@ -239,12 +239,8 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
     final_plots : 'default' | 'all' | iterable[str] | None
         End-of-run figures. The default writes only the Pareto front; see
         docsrc/visualization.md for the opt-in keys.
-    plot_style : 'fast' | 'publication', default 'publication'
-        Style for the end-of-run figures.
-    intermediate_plot_style : 'fast' | 'publication', default 'fast'
-        Style for the run monitor.
-    publication_variant : 'clean' | 'nature' | 'ieee' | 'medicalphysics', default 'clean'
-        Variant of the publication style.
+    publication_variant : 'clean' | 'ieee' | 'medicalphysics', default 'clean'
+        Plot style for the run monitor and the end-of-run figures.
     n_constraints : int, default 0
         Number of inequality constraints (g(x) <= 0 is feasible). When > 0 the
         objective function must return n_objectives + n_constraints values:
@@ -287,8 +283,8 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
     optimization_params, BaseDirectory, SimulationName,
     OptimizationDirectory, ReadMeText, G4dataLocation, TopasLocation,
     ShellScriptHeader, Overwrite, KeepAllResults, plot_frequency, final_plots,
-    plot_style, intermediate_plot_style, publication_variant, n_constraints,
-    on_evaluation_failure, failure_penalty, resume
+    publication_variant, n_constraints, on_evaluation_failure, failure_penalty,
+    resume
         Shared with NSGAII_Optimizer; see the preceding API entry for their
         definitions.
     pop_size : int | None, default None
@@ -345,9 +341,8 @@ class MOBOOptimizer(TopasMOOBaseClass):
     ---------------------
     optimization_params, BaseDirectory, SimulationName,
     OptimizationDirectory, TopasLocation, Overwrite, KeepAllResults,
-    plot_frequency, final_plots, plot_style, intermediate_plot_style,
-    publication_variant, n_constraints, on_evaluation_failure,
-    failure_penalty, resume
+    plot_frequency, final_plots, publication_variant, n_constraints,
+    on_evaluation_failure, failure_penalty, resume
         Shared with NSGAII_Optimizer; see the preceding API entry.
         ``n_generations`` is the number of acquisition batches after
         the initial design of ``n_init``.

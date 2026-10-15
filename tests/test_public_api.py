@@ -116,7 +116,6 @@ def test_root_package_exposes_publication_variants() -> None:
     assert "available_publication_variants" in TopasMOO.__all__
     assert set(TopasMOO.available_publication_variants()) == {
         "clean",
-        "nature",
         "ieee",
         "medicalphysics",
     }
@@ -142,13 +141,13 @@ def test_read_log_raises_malformed_output_on_bad_value(tmp_path) -> None:
         ReadInMultiObjectiveLogFile(str(bad_log))
 
 
-@pytest.mark.parametrize("variant", ["clean", "nature", "ieee", "medicalphysics"])
+@pytest.mark.parametrize("variant", ["clean", "ieee", "medicalphysics"])
 def test_apply_publication_variants(variant: str) -> None:
     apply_style("publication", variant=variant)
     fig, ax = plt.subplots()
     ax.plot([0, 1], [0, 1])
     plt.close(fig)
-    apply_style("fast")
+    apply_style("publication", variant="clean")
 
 
 def test_publication_style_context_manager_with_variant() -> None:
@@ -158,6 +157,9 @@ def test_publication_style_context_manager_with_variant() -> None:
         plt.close(fig)
 
 
-def test_removed_poster_variant_raises() -> None:
-    with pytest.raises(ValueError, match="Unknown publication variant 'poster'"):
-        apply_style("publication", variant="poster")
+@pytest.mark.parametrize("variant", ["fast", "nature", "poster"])
+def test_removed_variants_raise(variant: str) -> None:
+    with pytest.raises(ValueError, match="Unknown"):
+        apply_style(variant)
+    with pytest.raises(ValueError, match="Unknown"):
+        apply_style("publication", variant=variant)

@@ -99,35 +99,11 @@ def test_evaluate_objectives_rejects_missing_dict_parameters(tmp_path: Path) -> 
         optimizer.EvaluateObjectives({"x1": 0.1})
 
 
-def test_default_optimizer_style_split(tmp_path: Path) -> None:
+def test_default_publication_variant(tmp_path: Path) -> None:
     _write_minimal_project(tmp_path)
     optimizer = _make_optimizer(tmp_path, "DefaultStyles", overwrite=True)
-    assert optimizer.intermediate_plot_style == "fast"
-    assert optimizer.plot_style == "publication"
     assert optimizer.publication_variant == "clean"
     assert optimizer.verbose is False
-
-
-def test_invalid_optimizer_style_raises(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
-    optimization_params = {
-        "ParameterNames": ["x1", "x2"],
-        "UpperBounds": np.array([1.0, 1.0]),
-        "LowerBounds": np.array([0.0, 0.0]),
-        "start_point": np.array([0.5, 0.5]),
-        "n_iterations": 1,
-        "n_objectives": 2,
-    }
-    with pytest.raises(InvalidParameterError):
-        NSGAII_Optimizer(
-            optimization_params=optimization_params,
-            BaseDirectory=str(tmp_path),
-            SimulationName="BadStyle",
-            OptimizationDirectory=tmp_path,
-            TopasLocation="testing_mode",
-            Overwrite=True,
-            plot_style="journal",
-        )
 
 
 def test_invalid_publication_variant_raises(tmp_path: Path) -> None:
@@ -152,7 +128,7 @@ def test_invalid_publication_variant_raises(tmp_path: Path) -> None:
         )
 
 
-@pytest.mark.parametrize("variant", ["clean", "nature", "ieee", "medicalphysics"])
+@pytest.mark.parametrize("variant", ["clean", "ieee", "medicalphysics"])
 def test_publication_variants_accepted(tmp_path: Path, variant: str) -> None:
     _write_minimal_project(tmp_path)
     optimization_params = {

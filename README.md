@@ -75,7 +75,7 @@ optimizer = NSGAII_Optimizer(
     TopasLocation="testing_mode",
     Overwrite=True,
     pop_size=12,
-    publication_variant="clean",   # or "nature" / "ieee" / "medicalphysics"
+    publication_variant="clean",   # or "ieee" / "medicalphysics"
 )
 results = optimizer.RunOptimization()
 # results.X: decision variables on the Pareto set; results.F: objective values
