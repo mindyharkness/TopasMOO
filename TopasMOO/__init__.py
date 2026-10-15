@@ -15,8 +15,8 @@ Each optimization must import:
     Shared base for all three optimizers; subclass it to drive a different
     algorithm while reusing evaluation, logging, and plotting.
 
-The full visualization toolbox (Pareto fronts, petal diagrams, convergence plots,
-etc.) lives in the TopasMOO.plotting subpackage; only the style entry
+The full visualization toolbox (Pareto fronts, convergence plots, constraint
+checks, etc.) lives in the TopasMOO.plotting subpackage; only the style entry
 points are re-exported here for convenience. Pareto-analysis metrics live in
 TopasMOO.metrics and log helpers in TopasMOO.io.
 """
