@@ -159,7 +159,9 @@ def plot_constraint_check(
     """
     ok = np.asarray(eligible, dtype=float)
     window = min(window or max(20, len(ok) // 20), max(len(ok), 1))
-    share = np.convolve(ok, np.ones(window) / window, mode="valid")
+    # Sum the 0/1 counts, then divide once: exact on every platform, where
+    # summing window copies of 1/window can land on 1.0000000000000002.
+    share = np.convolve(ok, np.ones(window), mode="valid") / window
     apply_style()
     own_fig = ax is None
     if own_fig:
