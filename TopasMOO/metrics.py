@@ -7,6 +7,7 @@ All metrics assume minimization of objectives.
 from __future__ import annotations
 
 import numpy as np
+from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 
 def normalize_objectives(
@@ -61,11 +62,11 @@ def hypervolume_reference_point(objectives: np.ndarray) -> np.ndarray:
 
 
 def calculate_knee_point(pareto_objectives: np.ndarray) -> int:
-    """Find the knee point (best trade-off) on a Pareto front.
+    """Find the knee point (best balanced trade-off) on a Pareto front.
 
-    Uses a trade-off method: the knee is the solution with the minimum
-    sum of min-max normalized objectives, representing the best balanced
-    compromise across all objectives.
+    The knee is the solution whose *worst* min-max normalized objective is
+    smallest (a Chebyshev / min-max choice). Minimizing the *sum* instead runs
+    to a corner of a concave front (e.g. DTLZ2), picking an extreme design.
 
     :param pareto_objectives: Array of shape ``(n_solutions, n_objectives)``.
         All objectives are assumed to be minimized.
@@ -73,9 +74,7 @@ def calculate_knee_point(pareto_objectives: np.ndarray) -> int:
     :returns: Index (int) of the knee point solution in the input array.
     """
     normalized, _ideal, _nadir = normalize_objectives(pareto_objectives)
-
-    total_objectives = normalized.sum(axis=1)
-    return int(np.argmin(total_objectives))
+    return int(np.argmin(normalized.max(axis=1)))
 
 
 def calculate_crowding_distance(pareto_objectives: np.ndarray) -> np.ndarray:
@@ -131,38 +130,4 @@ def calculate_dominance_rank(objectives: np.ndarray) -> np.ndarray:
 
     :returns: Integer array of dominance ranks with shape ``(n_solutions,)``.
     """
-    n_solutions = len(objectives)
-    domination_count = np.zeros(n_solutions, dtype=int)
-    dominated_solutions = [[] for _ in range(n_solutions)]
-    ranks = np.zeros(n_solutions, dtype=int)
-
-    for i in range(n_solutions):
-        for j in range(i + 1, n_solutions):
-            if np.all(objectives[i] <= objectives[j]) and np.any(
-                objectives[i] < objectives[j]
-            ):
-                dominated_solutions[i].append(j)
-                domination_count[j] += 1
-            elif np.all(objectives[j] <= objectives[i]) and np.any(
-                objectives[j] < objectives[i]
-            ):
-                dominated_solutions[j].append(i)
-                domination_count[i] += 1
-
-    current_front = np.where(domination_count == 0)[0]
-    rank = 0
-
-    while len(current_front) > 0:
-        ranks[current_front] = rank
-        next_front = []
-
-        for i in current_front:
-            for j in dominated_solutions[i]:
-                domination_count[j] -= 1
-                if domination_count[j] == 0:
-                    next_front.append(j)
-
-        current_front = np.array(next_front)
-        rank += 1
-
-    return ranks
+    return NonDominatedSorting().do(np.asarray(objectives, dtype=float), return_rank=True)[1]

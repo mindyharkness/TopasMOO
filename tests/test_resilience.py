@@ -15,7 +15,8 @@ import pytest
 matplotlib.use("Agg")
 
 from TopasMOO.exceptions import InvalidParameterError, ObjectiveFunctionError, TopasExecutionError
-from TopasMOO.optimizers import NSGAII_Optimizer, TopasProblem
+from TopasMOO.io import ReadInMultiObjectiveLogFile
+from TopasMOO.optimizers import NSGAII_Optimizer, NSGAIII_Optimizer, TopasProblem
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +61,7 @@ def _write_minimal_project(opt_dir: Path, script_name: str = "MinimalSimulation"
     )
 
 
-def _make(base_dir: Path, name: str, opt_dir: Path | None = None, **kw) -> NSGAII_Optimizer:
+def _make(base_dir: Path, name: str, opt_dir: Path | None = None, cls=NSGAII_Optimizer, **kw):
     opt_dir = opt_dir or base_dir
     params = {
         "ParameterNames": ["x1", "x2"],
@@ -82,7 +83,7 @@ def _make(base_dir: Path, name: str, opt_dir: Path | None = None, **kw) -> NSGAI
     )
     defaults.setdefault("Overwrite", True)
     defaults.update(kw)
-    return NSGAII_Optimizer(optimization_params=params, **defaults)
+    return cls(optimization_params=params, **defaults)
 
 
 def _count_topas_runs(optimizer):
@@ -115,6 +116,23 @@ def test_penalize_topas_execution_failure(tmp_path):
     of = opt.EvaluateObjectives(np.array([0.5, 0.5]))
     assert np.allclose(of, opt.failure_penalty)
     assert opt._n_failed_evaluations == 1
+
+
+@pytest.mark.parametrize("fail_every", [1, 2])
+def test_final_log_warns_only_when_every_evaluation_failed(tmp_path, fail_every):
+    _write_minimal_project(tmp_path)
+    opt = _make(tmp_path, "AllFail", n_generations=1)
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] % fail_every == 0:
+            raise TopasExecutionError("simulated non-zero exit")
+
+    opt._run_topas_model = flaky
+    opt.RunOptimization()
+    warned = "Every evaluation failed" in Path(opt._LogFileLoc).read_text()
+    assert warned == (fail_every == 1)
 
 
 def test_penalize_non_finite_objective(tmp_path):
@@ -341,11 +359,100 @@ def test_resume_reuses_cache_without_rerunning_topas(tmp_path):
     assert counter["n"] == 0  # every design served from the cache
 
 
-def test_state_checkpoint_written(tmp_path):
+@pytest.mark.parametrize(
+    "cls, kw",
+    [
+        (NSGAII_Optimizer, {}),
+        (NSGAIII_Optimizer, {"pop_size": None, "ref_dir_partitions": 3}),
+    ],
+)
+def test_state_checkpoint_round_trips(tmp_path, cls, kw):
+    # File existence is not enough: a failed pickle.dump used to leave a 0-byte
+    # file, and a seeded restart replaying the cache hides that in resume tests.
     _write_minimal_project(tmp_path)
-    opt = _make(tmp_path, "Ckpt", n_generations=2)
+    first = _make(tmp_path, "Ckpt", n_generations=2, cls=cls, **kw)
+    first.RunOptimization()
+    resumed = _make(
+        tmp_path, "Ckpt", n_generations=2, cls=cls, Overwrite=False, resume=True, **kw
+    )
+    algorithm = resumed._load_state_checkpoint(TopasProblem(resumed))
+    assert algorithm is not None
+    assert algorithm.n_gen == first.algorithm.n_gen
+
+
+@pytest.mark.parametrize(
+    "cls, kw",
+    [
+        (NSGAII_Optimizer, {}),
+        (NSGAIII_Optimizer, {"pop_size": None, "ref_dir_partitions": 3}),
+    ],
+)
+def test_no_feasible_design_finishes_with_empty_front(tmp_path, cls, kw):
+    # pymoo returns res.F = None when nothing is feasible; that used to crash
+    # LogParetoFrontToFile before ParetoFront.txt or the run summary were written.
+    _write_minimal_project(tmp_path)
+    (tmp_path / "TopasObjectiveFunction.py").write_text(
+        "def TopasObjectiveFunction(ResultsLocation, iteration):\n"
+        "    return [0.1, 0.2, 1.0]  # g = 1 > 0: never feasible\n"
+    )
+    opt = _make(tmp_path, "NoFeasible", n_generations=2, cls=cls, n_constraints=1, **kw)
+    res = opt.RunOptimization()
+    assert res.F is None
+    assert opt.ParetoObjectives.shape == (0, 2)
+    assert Path(opt._ParetoLogFileLoc).read_text().startswith("Solution_Index,")
+    assert "No feasible design found" in Path(opt._LogFileLoc).read_text()
+
+
+def test_evaluation_history_marks_infeasible_and_failed_designs(tmp_path):
+    # Feeds the context plot, hypervolume, constraint check and run monitor.
+    _write_minimal_project(tmp_path)
+    (tmp_path / "TopasObjectiveFunction.py").write_text(
+        "def TopasObjectiveFunction(ResultsLocation, iteration):\n"
+        "    return [0.1, 0.2, 1.0 if iteration % 2 else -1.0]  # odd iterations infeasible\n"
+    )
+    opt = _make(tmp_path, "History", n_generations=1, n_constraints=1, plot_frequency=1)
+    calls = {"n": 0}
+    original = opt._run_topas_model
+
+    def third_run_fails():
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise TopasExecutionError("simulated non-zero exit")
+        return original()
+
+    opt._run_topas_model = third_run_fails
     opt.RunOptimization()
-    assert os.path.isfile(opt._checkpoint_loc)
+    _F, eligible, failed = opt.evaluation_history()
+    assert failed.tolist() == [False, False, True, False]
+    assert eligible.tolist() == [True, False, False, False]
+    logs = tmp_path / "History" / "logs"
+    assert (logs / "RunMonitor.png").is_file()
+    assert not (logs / "ConvergencePlot.png").exists()
+
+
+def test_relative_base_directory_runs_topas(tmp_path, monkeypatch):
+    # RunIteration.sh runs with cwd=TopasScripts, so a relative BaseDirectory
+    # used to make bash miss the script and penalize every evaluation.
+    _write_minimal_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    opt = _make(Path("."), "Relative", n_generations=1)
+    opt.RunOptimization()
+    assert opt._n_failed_evaluations == 0
+
+
+def test_logs_keep_small_objective_values(tmp_path):
+    # Raw TOPAS doses in Gy are often far below 0.01; fixed-decimal logs wrote 0.
+    _write_minimal_project(tmp_path)
+    (tmp_path / "TopasObjectiveFunction.py").write_text(
+        "def TopasObjectiveFunction(ResultsLocation, iteration):\n"
+        "    return [1.23456e-9, 0.2]\n"
+    )
+    opt = _make(tmp_path, "Precision", n_generations=1)
+    opt.RunOptimization()
+    logged = ReadInMultiObjectiveLogFile(opt._LogFileLoc)["ObjectiveFunction_1"]
+    front = np.loadtxt(opt._ParetoLogFileLoc, delimiter=",", skiprows=1, ndmin=2)
+    assert np.allclose(logged, 1.23456e-9, rtol=1e-5, atol=0)
+    assert np.allclose(front[:, 1], 1.23456e-9, rtol=1e-5, atol=0)
 
 
 def test_partial_resume_continues_without_repeating_completed_generations(tmp_path):

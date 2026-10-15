@@ -1,147 +1,66 @@
-"""
-Decision variable heatmap for the Pareto set.
-"""
+"""Decision variables of the Pareto set, ordered along the front."""
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Sequence, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
-from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 
-from .style import (
-    ACCENT_COLOR,
-    DOUBLE_COL_WIDTH,
-    apply_style,
-    finalize_figure,
-    format_publication_axes,
-    line_width,
-    scale_figsize,
-)
-
-logger = logging.getLogger(__name__)
+from .pareto import objective_names_or_default
+from .style import DOUBLE_COL_WIDTH, apply_style, finalize_figure, scale_figsize
 
 PathLike = Union[str, os.PathLike]
 
 
-def plot_decision_heatmap(
-    decision_vars: np.ndarray,
+def plot_decision_along_front(
+    pareto_objectives: np.ndarray,
+    pareto_decision_vars: np.ndarray,
     save_path: PathLike | None = None,
     *,
+    lower_bounds: Sequence[float],
+    upper_bounds: Sequence[float],
     parameter_names: Sequence[str] | None = None,
-    title: str = "Decision Variables (Pareto Set)",
+    objective_names: Sequence[str] | None = None,
     dpi: int | None = None,
-) -> tuple[Axes, Axes]:
-    """Two-panel figure: normalized heatmap of Pareto decision variables + boxplots.
+) -> Axes:
+    """Where each parameter sits within its bounds, for every Pareto solution.
 
-    The left panel shows an imshow heatmap (solutions × parameters) sorted by
-    the first parameter.  The right panel shows per-parameter box distributions
-    so the spread and central tendency of each variable are immediately visible.
-    Both panels use the same per-parameter [0, 1] normalization; raw-value
-    boxplots would flatline any parameter whose scale is much smaller than the
-    others'.
+    Columns are the Pareto solutions ordered by the first objective, rows are
+    parameters, and color is the position between the lower (0) and upper (1)
+    bound. A row that stays one color is fixed along the front; a gradient
+    shows a parameter that drives the trade-off.
 
-    :param decision_vars: Array of shape ``(n_solutions, n_params)``.
-    :param save_path: If provided, save ``.pdf`` and ``.png`` to this path.
-    :param parameter_names: List of parameter name strings.  Falls back to
-        ``["p1", "p2", ...]`` if not given.
-    :param title: Figure suptitle.
+    :param pareto_objectives: ``(n_solutions, n_objectives)``, minimized.
+    :param pareto_decision_vars: ``(n_solutions, n_params)``, row-aligned.
+    :param save_path: If provided, save ``.pdf`` and ``.png``.
+    :param lower_bounds: Lower bound of each parameter.
+    :param upper_bounds: Upper bound of each parameter.
+    :param parameter_names: One label per parameter.
+    :param objective_names: One label per objective (the first names the order).
     :param dpi: Raster resolution (defaults to the publication DPI floor).
 
-    :returns: Tuple of ``(ax_heat, ax_box)`` axes.
+    :returns: The matplotlib Axes.
     """
+    F = np.asarray(pareto_objectives, dtype=float)
+    X = np.asarray(pareto_decision_vars, dtype=float).reshape(len(F), -1)
+    lower, upper = np.asarray(lower_bounds, dtype=float), np.asarray(upper_bounds, dtype=float)
+    span = np.where(upper > lower, upper - lower, 1.0)
+    position = (X[np.argsort(F[:, 0], kind="stable")] - lower) / span
+    params = list(parameter_names) if parameter_names is not None else [f"Parameter {k + 1}" for k in range(X.shape[1])]
+    first = objective_names_or_default(objective_names, F.shape[1])[0]
+
     apply_style()
-
-    decision_vars = np.asarray(decision_vars, dtype=float)
-    n_solutions, n_params = decision_vars.shape
-
-    if parameter_names is None:
-        parameter_names = [f"p{i + 1}" for i in range(n_params)]
-
-    # Normalize each column to [0, 1] for the heatmap
-    col_min = decision_vars.min(axis=0)
-    col_max = decision_vars.max(axis=0)
-    col_range = np.where(col_max - col_min > 0, col_max - col_min, 1.0)
-    normalized = (decision_vars - col_min) / col_range
-
-    # Sort rows by first parameter for visual clarity
-    order = np.argsort(decision_vars[:, 0])
-    normalized_sorted = normalized[order]
-
-    fig, (ax_heat, ax_box) = plt.subplots(
-        1,
-        2,
-        figsize=scale_figsize(DOUBLE_COL_WIDTH, max(3.2, 0.42 * n_params + 2.2)),
-        gridspec_kw={"width_ratios": [1.35, 1.0]},
-    )
-
-    # Left: heatmap
-    im = ax_heat.imshow(
-        normalized_sorted.T,
-        cmap="viridis",
-        aspect="auto",
-        interpolation="nearest",
-        vmin=0,
-        vmax=1,
-    )
-    ax_heat.set_xlabel("Solution index (sorted by first parameter)")
-    ax_heat.set_ylabel("Parameter")
-    ax_heat.set_title("Normalized values")
-    ax_heat.set_yticks(range(n_params))
-    ax_heat.set_yticklabels(parameter_names)
-    cbar = fig.colorbar(im, ax=ax_heat, pad=0.02, fraction=0.08)
-    cbar.set_label("Normalized value")
-
-    # Right: boxplots on the same normalized scale as the heatmap
-    positions = np.arange(1, n_params + 1)
-    bp = ax_box.boxplot(
-        [normalized[:, i] for i in range(n_params)],
-        positions=positions,
-        widths=0.55,
-        patch_artist=True,
-        showmeans=True,
-        meanline=True,
-        medianprops=dict(linewidth=line_width(0.75), color="#333333"),
-        meanprops=dict(linewidth=line_width(0.75), linestyle="--", color=ACCENT_COLOR),
-        whiskerprops=dict(linewidth=line_width(0.5)),
-        capprops=dict(linewidth=line_width(0.5)),
-        flierprops=dict(
-            marker="o", markersize=0.65 * plt.rcParams["lines.markersize"], alpha=0.5
-        ),
-    )
-    for patch in bp["boxes"]:
-        patch.set_facecolor("#A8DADC")
-        patch.set_alpha(0.7)
-
-    ax_box.set_xticks(positions)
-    ax_box.set_xticklabels(parameter_names, rotation=45, ha="right")
-    ax_box.set_ylabel("Normalized value")
-    ax_box.set_title("Distribution")
-    ax_box.set_ylim(-0.05, 1.05)
-    format_publication_axes(ax_box)
-
-    # Legend for mean vs median
-    legend_elements = [
-        Line2D([0], [0], color="#333333", linewidth=line_width(0.75), label="Median"),
-        Line2D(
-            [0], [0], color=ACCENT_COLOR, linewidth=line_width(0.75), linestyle="--",
-            label="Mean",
-        ),
-    ]
-    ax_box.legend(
-        handles=legend_elements,
-        loc="center left",
-        bbox_to_anchor=(1.04, 0.5),
-        frameon=False,
-        borderaxespad=0,
-    )
-
-    fig.suptitle(title)
-
+    fig, ax = plt.subplots(figsize=scale_figsize(DOUBLE_COL_WIDTH, 1.2 + 0.32 * X.shape[1]))
+    image = ax.imshow(position.T, aspect="auto", cmap="cividis", vmin=0, vmax=1,
+                      interpolation="nearest")
+    ax.grid(False)
+    ax.set_yticks(range(len(params)), params)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins="auto", integer=True))
+    ax.set_xlabel(f"Pareto solutions, ordered by {first}")
+    fig.colorbar(image, ax=ax, pad=0.02).set_label("Position within bounds")
     finalize_figure(fig, save_path, dpi=dpi)
-
-    return ax_heat, ax_box
+    return ax

@@ -1,6 +1,6 @@
 # TopasMOO `publication` (variant=ieee)
-# Engineering/IEEE feel: Computer Modern serif, boxed axes, dense ticks, no grid.
-# Uses mathtext 'cm' fontset so labels look LaTeX-like without requiring usetex.
+# Engineering/IEEE feel: Times-style serif, boxed axes, dense ticks, no grid.
+# Not Computer Modern: cmr10's legacy encoding draws "_" as a dot accent.
 
 figure.figsize: 3.5, 2.7
 figure.dpi: 150
@@ -16,14 +16,11 @@ savefig.pad_inches: 0.04
 
 font.family: serif
 text.hinting: none
-font.serif: cmr10, Computer Modern Roman, STIXGeneral, DejaVu Serif, serif
+font.serif: Times New Roman, Times, STIXGeneral, DejaVu Serif, serif
 font.size: 9.0
 
-mathtext.fontset: cm
-mathtext.rm: cmr10
+mathtext.fontset: stix
 axes.formatter.use_mathtext: True
-# cmr10 has no Unicode minus glyph; use ASCII hyphen-minus in labels.
-axes.unicode_minus: False
 
 axes.labelsize: 9.5
 axes.labelpad: 5.0
@@ -65,3 +62,7 @@ legend.edgecolor: 0.4
 legend.fancybox: False
 legend.borderpad: 0.35
 legend.labelspacing: 0.3
+
+# Embed TrueType (Type 42) fonts: journals reject or flag Type 3 fonts.
+pdf.fonttype: 42
+ps.fonttype: 42

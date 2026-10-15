@@ -31,7 +31,7 @@ jobs:
           python -m pip install ".[dev]"
 
       - name: Lint with Ruff
-        run: ruff check TopasMOO tests
+        run: ruff check .
 
       - name: Run tests
         run: pytest -v

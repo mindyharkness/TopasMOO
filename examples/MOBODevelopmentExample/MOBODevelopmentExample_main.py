@@ -51,6 +51,7 @@ optimizer = MOBOOptimizer(
     acquisition="auto",
     num_restarts=5,
     raw_samples=128,
+    final_plots={"pareto", "hypervolume", "gp_correlation"},
 )
 
 print("Starting MOBO optimization...")

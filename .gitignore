@@ -31,7 +31,9 @@ local_files/
 
 # Generated optimization run outputs
 examples/DevelopmentExample/DevelopmentExample_MOO/
-examples/ApertureOptimization/ApertureOptimization_MOO/
+examples/MOBODevelopmentExample/MOBODevelopmentExample_Run/
+examples/ApertureOptimization/ApertureOptimization_*/
+benchmarks/results/
 examples/**/logs/
 examples/**/Results/
 examples/**/TopasScripts/

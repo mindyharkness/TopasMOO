@@ -14,9 +14,10 @@ from common import (
     bnh_feasible,
     dtlz2,
     hypervolume,
-    hypervolume_reference_point,
     run_mobo,
 )
+
+from TopasMOO.metrics import hypervolume_reference_point
 
 OUT = Path(__file__).resolve().parent / "results"
 OUT.mkdir(exist_ok=True)

@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "topasmoo"
-version = "0.2.0"
+version = "0.3.0"
 description = "Multi-objective optimization extension of TopasOpt for TOPAS Monte Carlo simulations"
 authors = [{name = "Mindy Harkness"}]
 license = "MIT"
@@ -48,11 +48,6 @@ mobo = [
 dev = [
     "ruff>=0.5.0",
     "pytest>=8.0.0",
-    "pytest-cov>=4.1.0",
-    "pytest-mpl>=0.17.0",
-    "coverage>=7.4.1",
-    "build>=1.2.0",
-    "twine>=5.0.0",
 ]
 
 [project.urls]
@@ -68,6 +63,7 @@ include = ["TopasMOO/plotting/*.mplstyle"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = ["examples"]  # example scripts are not linted
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B"]
@@ -78,7 +74,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B"]
-"examples/*" = ["B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

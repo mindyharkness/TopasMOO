@@ -2,13 +2,13 @@
 """
 Multi-objective optimization drivers for TopasMOO.
 
-Houses ``TopasMOOBaseClass`` (shared by ``NSGAII_Optimizer`` and
-``MOBOOptimizer``) and the pymoo NSGA-II driver. Extends the TopasOpt workflow
+Houses ``TopasMOOBaseClass`` (shared by ``NSGAII_Optimizer``,
+``NSGAIII_Optimizer``, and ``MOBOOptimizer``) and the pymoo NSGA-II/III drivers. Extends the TopasOpt workflow
 to vector-valued objectives and Pareto-front tracking.
 
 Shared conventions (minimization objectives, ``g(x) <= 0`` feasible constraints,
 ``optimization_params`` keys, ``EvaluateObjectives``, logging, and plotting
-attributes) live on the base class so both algorithms speak the same language.
+attributes) live on the base class so every algorithm speaks the same language.
 """
 import json
 import logging
@@ -25,11 +25,12 @@ from pathlib import Path
 
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.algorithms.moo.nsga3 import NSGA3
+from pymoo.algorithms.moo.nsga3 import NSGA3, comp_by_cv_then_random
 from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 from pymoo.operators.sampling.rnd import FloatRandomSampling
+from pymoo.operators.selection.tournament import TournamentSelection
 from pymoo.termination import get_termination
 from pymoo.util.ref_dirs import get_reference_directions
 
@@ -40,10 +41,9 @@ from .exceptions import (
     TopasExecutionError,
 )
 from .io import LogParetoFrontToFile, ReadInMultiObjectiveLogFile
-from .metrics import calculate_dominance_rank, hypervolume_reference_point
+from .metrics import calculate_dominance_rank
 from .plotting import GenerateComprehensiveVisualizations
-from .plotting.convergence import plot_objective_convergence, plot_parameter_convergence
-from .plotting.pareto import plot_pareto_front
+from .plotting.progress import plot_run_monitor
 from .plotting.style import (
     INTERMEDIATE_PLOT_DPI,
     apply_style,
@@ -59,7 +59,7 @@ class TopasMOOBaseClass(ABC):
 
     Provides logging, objective evaluation, script generation, Pareto tracking,
     and shared directory setup for concrete optimizers
-    (``NSGAII_Optimizer``, ``MOBOOptimizer``).
+    (``NSGAII_Optimizer``, ``NSGAIII_Optimizer``, ``MOBOOptimizer``).
 
     Compared to TopasOpt:
         - Vector-valued objectives instead of a single fitness (always
@@ -70,7 +70,7 @@ class TopasMOOBaseClass(ABC):
         - Multi-objective plotting helpers shared across algorithms.
 
     Do not instantiate this class directly; subclass it
-    (e.g. ``NSGAII_Optimizer`` or ``MOBOOptimizer``).
+    (``NSGAII_Optimizer``, ``NSGAIII_Optimizer``, or ``MOBOOptimizer``).
     Constructor parameters are documented on ``__init__``.
     """
 
@@ -88,8 +88,6 @@ class TopasMOOBaseClass(ABC):
         KeepAllResults=True,
         plot_frequency=10,
         final_plots=None,
-        plot_style="publication",
-        intermediate_plot_style="fast",
         publication_variant="clean",
         n_constraints=0,
         on_evaluation_failure="penalize",
@@ -100,10 +98,15 @@ class TopasMOOBaseClass(ABC):
 
         :param optimization_params: Dict including ``n_objectives`` (>= 2), ``ParameterNames``,
             ``start_point``, ``UpperBounds``, ``LowerBounds``, and ``n_generations``
-            (the number of NSGA-II generations to run; the legacy alias
+            (the number of NSGA-II/III generations to run; the legacy alias
             ``n_iterations`` is still accepted). ``start_point`` is injected
-            into the initial NSGA-II population as one individual (the rest
+            into the initial NSGA-II/III population as one individual (the rest
             are sampled randomly); it is ignored when resuming from a checkpoint.
+            Optional ``ObjectiveNames``: one label per objective (include units)
+            used on every plot axis and legend; defaults to "Objective 1", ...
+            Optional ``Maximize``: one flag per objective. The objective function
+            still returns a maximized quantity negated (everything is
+            minimized); plots show it with its sign flipped, under its own name.
         :param BaseDirectory: Existing root directory for simulation outputs.
         :param SimulationName: Subfolder name for this optimization run.
         :param OptimizationDirectory: Directory containing ``GenerateTopasScripts.py`` and
@@ -124,15 +127,10 @@ class TopasMOOBaseClass(ABC):
             an iterable of keys. See
             :func:`~TopasMOO.plotting.GenerateComprehensiveVisualizations` for all
             recognized keys.
-        :param plot_style: Final-figure style for end-of-run visualizations.
-            One of ``"fast"`` or ``"publication"`` (default).
-        :param intermediate_plot_style: Style for iterative plots generated during
-            optimization. One of ``"fast"`` (default) or ``"publication"``.
-        :param publication_variant: Variant of the ``"publication"`` style. One of
-            ``"clean"`` (default), ``"nature"``, ``"ieee"``, or
+        :param publication_variant: Plot style for the run monitor and the final
+            figures. One of ``"clean"`` (default), ``"ieee"``, or
             ``"medicalphysics"`` -- see :mod:`TopasMOO.plotting.style` for what
             each looks like.
-            Ignored when both styles are ``"fast"``.
         :param n_constraints: Number of inequality constraints (``g(x) <= 0`` is
             feasible, pymoo / TopasMOO convention). When ``> 0`` the user
             ``TopasObjectiveFunction`` must return ``n_objectives +
@@ -145,7 +143,7 @@ class TopasMOOBaseClass(ABC):
             constraint value) so the optimization continues instead of
             aborting. Contract violations (wrong type/shape/length of the
             returned vector) always raise regardless of this setting.
-            ``NSGAII_Optimizer`` keeps penalized rows in its population;
+            ``NSGAII_Optimizer`` / ``NSGAIII_Optimizer`` keep penalized rows in their population;
             ``MOBOOptimizer`` quarantines them from the surrogate and the
             reported front (see that class for details).
         :param failure_penalty: Objective value assigned to each objective of a
@@ -177,7 +175,6 @@ class TopasMOOBaseClass(ABC):
             msg = (
                 "optimization_params must include a non-None 'start_point' "
             )
-            logger.error(msg)
             raise InvalidParameterError(msg)
 
         optimization_params = self._convert_optimization_params_to_numpy(
@@ -189,7 +186,6 @@ class TopasMOOBaseClass(ABC):
             msg = (
                 'TopasMOO requires "n_objectives" key in optimization_params. '
             )
-            logger.error(msg)
             raise InvalidParameterError(msg)
 
         self.n_objectives = int(optimization_params["n_objectives"])
@@ -199,8 +195,29 @@ class TopasMOOBaseClass(ABC):
                 f"You specified {self.n_objectives}. "
                 f"Use TopasOpt for single-objective problems."
             )
-            logger.error(msg)
             raise InvalidParameterError(msg)
+
+        # Optional plot labels; None keeps each plot's generic default.
+        objective_names = optimization_params.get("ObjectiveNames")
+        if objective_names is not None and (
+            isinstance(objective_names, str) or len(objective_names) != self.n_objectives
+        ):
+            raise InvalidParameterError(
+                f"ObjectiveNames must be a list of {self.n_objectives} names, one "
+                f"per objective. Got {objective_names!r}."
+            )
+        self.ObjectiveNames = (
+            None if objective_names is None else [str(name) for name in objective_names]
+        )
+        maximize = optimization_params.get("Maximize")
+        if maximize is not None and (
+            isinstance(maximize, str) or len(maximize) != self.n_objectives
+        ):
+            raise InvalidParameterError(
+                f"Maximize must be a list of {self.n_objectives} booleans, one per "
+                f"objective. Got {maximize!r}."
+            )
+        self.Maximize = None if maximize is None else [bool(flag) for flag in maximize]
 
         self.n_constraints = int(n_constraints)
         if self.n_constraints < 0:
@@ -237,18 +254,19 @@ class TopasMOOBaseClass(ABC):
         self._last_constraint_values = None
         self._eval_cache = {}
 
-        # Expand ``~`` here (the export line in RunIteration.sh is shell-quoted,
-        # which would otherwise prevent bash from expanding a literal ``~``).
-        self.G4dataLocation = os.path.expanduser(str(G4dataLocation))
+        # Paths used by RunIteration.sh are made absolute here: the script runs
+        # with cwd=TopasScripts, so a relative path would silently fail every
+        # evaluation. ``~`` is expanded first because the export line is
+        # shell-quoted, which would otherwise prevent bash from expanding it.
+        self.G4dataLocation = os.path.abspath(os.path.expanduser(str(G4dataLocation)))
         self.ReadMeText = ReadMeText
         self.ShellScriptHeader = ShellScriptHeader
         self.KeepAllResults = KeepAllResults
-        self.BaseDirectory = BaseDirectory
+        self.BaseDirectory = os.path.abspath(BaseDirectory)
         self.OptimizationDirectory = OptimizationDirectory
 
         if not os.path.isdir(BaseDirectory):
             msg = f'Input BaseDirectory "{BaseDirectory}" does not exist.'
-            logger.error(msg)
             raise FileNotFoundError(msg)
 
         self.SimulationName = SimulationName
@@ -276,14 +294,15 @@ class TopasMOOBaseClass(ABC):
         self.UpperBounds = optimization_params["UpperBounds"]
         self.LowerBounds = optimization_params["LowerBounds"]
         self.n_generations = int(optimization_params["n_iterations"])
-        self._create_variable_dictionary(self.StartingValues)
         self.Overwrite = Overwrite
 
         # Plot configuration. Reject bools and non-integral numbers outright
         # rather than coercing: int(2.9) == 2 would silently plot at a
         # different cadence than the caller asked for.
-        if isinstance(plot_frequency, bool) or not isinstance(
-            plot_frequency, numbers.Integral
+        if (
+            isinstance(plot_frequency, bool)
+            or not isinstance(plot_frequency, numbers.Integral)
+            or plot_frequency < 1
         ):
             raise InvalidParameterError(
                 "plot_frequency must be a positive integer "
@@ -291,28 +310,9 @@ class TopasMOOBaseClass(ABC):
                 f"Got {plot_frequency!r}."
             )
         self.plot_frequency = int(plot_frequency)
-        if self.plot_frequency < 1:
-            raise InvalidParameterError(
-                "plot_frequency must be a positive integer "
-                f"(number of evaluations between intermediate plots). "
-                f"Got {plot_frequency!r}."
-            )
         self.final_plots = final_plots
-        self.plot_style = plot_style
-        self.intermediate_plot_style = intermediate_plot_style
         self.publication_variant = publication_variant
-        valid_plot_styles = {"fast", "publication"}
         valid_publication_variants = set(available_publication_variants())
-        if self.plot_style not in valid_plot_styles:
-            raise InvalidParameterError(
-                f"plot_style must be one of {sorted(valid_plot_styles)}. "
-                f"Got '{self.plot_style}'."
-            )
-        if self.intermediate_plot_style not in valid_plot_styles:
-            raise InvalidParameterError(
-                f"intermediate_plot_style must be one of {sorted(valid_plot_styles)}. "
-                f"Got '{self.intermediate_plot_style}'."
-            )
         if self.publication_variant not in valid_publication_variants:
             raise InvalidParameterError(
                 f"publication_variant must be one of "
@@ -325,10 +325,6 @@ class TopasMOOBaseClass(ABC):
         self.AllDecisionVariables = []        # Parallel list of decision-variable vectors
         self.ParetoObjectives = []            # Objective values of the non-dominated set
         self.ParetoDecisionVars = None        # Decision variables for Pareto set
-        # One hypervolume entry per algorithm step (NSGA-II generation or MOBO batch).
-        self.HypervolumeHistory = []
-        # List of (step_index, objectives_array) snapshots for plotting.
-        self.PopulationHistory = []
 
         if "~" in str(TopasLocation):
             TopasLocation = os.path.expanduser(str(TopasLocation))
@@ -339,28 +335,12 @@ class TopasMOOBaseClass(ABC):
             logger.warning(
                 f"Entering test mode because topas location = {self.TopasLocation}"
             )
+        else:
+            self.TopasLocation = Path(os.path.abspath(self.TopasLocation))
 
         # Load user defined model generator and objective function
-        try:
-            generate_mod = _import_from_absolute_path(
-                Path(self.OptimizationDirectory) / "GenerateTopasScripts.py"
-            )
-        except ModuleNotFoundError as e:
-            logger.error(
-                f'Failed to import required file at {str(Path(self.OptimizationDirectory) / "GenerateTopasScripts.py")}.'
-                f"\nQuitting"
-            )
-            raise e
-        try:
-            objective_mod = _import_from_absolute_path(
-                Path(self.OptimizationDirectory) / "TopasObjectiveFunction.py"
-            )
-        except ModuleNotFoundError as e:
-            logger.error(
-                f'Failed to import required file at {str(Path(self.OptimizationDirectory) / "TopasObjectiveFunction.py")}.'
-                f"\nQuitting"
-            )
-            raise e
+        generate_mod = _import_from_absolute_path(Path(self.OptimizationDirectory) / "GenerateTopasScripts.py")
+        objective_mod = _import_from_absolute_path(Path(self.OptimizationDirectory) / "TopasObjectiveFunction.py")
         self.TopasScriptGenerator = _load_user_callable(
             generate_mod,
             "GenerateTopasScripts",
@@ -386,10 +366,10 @@ class TopasMOOBaseClass(ABC):
         * ``Nitterations`` — deprecated legacy spelling (emits ``FutureWarning``).
 
         This key counts algorithm steps, and **each subclass defines what a step
-        is**: for :class:`NSGAII_Optimizer` it is one NSGA-II population
-        generation, while :class:`~TopasMOO.mobo.MOBOOptimizer` reads it as one
+        is**: for :class:`NSGAII_Optimizer` and :class:`NSGAIII_Optimizer` it
+        is one population generation, while :class:`~TopasMOO.mobo.MOBOOptimizer` reads it as one
         acquisition batch after the initial design. Consult the subclass you are
-        configuring rather than assuming the NSGA-II meaning.
+        configuring rather than assuming the NSGA meaning.
 
         In neither case is a step the same as the per-evaluation
         ``evaluation_index`` counter (see ``EvaluateObjectives``) or
@@ -429,7 +409,7 @@ class TopasMOOBaseClass(ABC):
         if "n_iterations" not in optimization_params:
             raise InvalidParameterError(
                 "optimization_params must contain 'n_generations' "
-                "(number of algorithm steps: NSGA-II generations, or MOBO "
+                "(number of algorithm steps: NSGA-II/III generations, or MOBO "
                 "acquisition batches after the initial design)."
             )
         return optimization_params
@@ -446,6 +426,8 @@ class TopasMOOBaseClass(ABC):
         """
         skip_keys = {
             "ParameterNames",
+            "ObjectiveNames",
+            "Maximize",
             "Nitterations",
             "n_iterations",
             "n_generations",
@@ -462,38 +444,15 @@ class TopasMOOBaseClass(ABC):
                     f"optimization param '{param_key}' must be a list or numpy "
                     f"array, got {type(value).__name__}."
                 )
-                logger.error(msg)
                 raise InvalidParameterError(msg)
             optimization_params[param_key] = value.astype(float)
 
         return optimization_params
 
     def _create_variable_dictionary(self, x):
-        """Map ``ParameterNames`` to scalar values in ``self.VariableDict``.
-
-        :param x: 1D vector or single-row 2D array of parameters.
-
-        :raises InvalidParameterError: If ``x`` is not 1D or 2D in the expected layout.
-        """
-        if np.ndim(x) == 1:
-            self.VariableDict = {
-                self.ParameterNames[i]: x[i] for i in range(len(self.ParameterNames))
-            }
-        elif np.ndim(x) == 2:
-            self.VariableDict = {
-                self.ParameterNames[i]: x[0][i] for i in range(len(self.ParameterNames))
-            }
-        else:
-            msg = (
-                f"Parameter vector must be 1D or a single-row 2D array; "
-                f"got {np.ndim(x)} dimensions."
-            )
-            logger.error(msg)
-            raise InvalidParameterError(msg)
-
-        for key in self.VariableDict.keys():
-            if isinstance(self.VariableDict[key], np.ndarray):
-                self.VariableDict[key] = self.VariableDict[key][0]
+        """Map ``ParameterNames`` to the scalar values of one design ``x``
+        (1-D, or a single-row 2-D array) in ``self.VariableDict``."""
+        self.VariableDict = dict(zip(self.ParameterNames, np.ravel(x), strict=True))
 
     def _empty_simulation_folder(self):
         """Clear the simulation folder if it has contents and ``Overwrite`` is True.
@@ -514,14 +473,10 @@ class TopasMOOBaseClass(ABC):
         logger.warning("Emptying simulation folder %s", SimName)
         for filename in os.listdir(SimName):
             file_path = os.path.join(SimName, filename)
-            try:
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path)
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-            except Exception as e:
-                logger.error("Failed to delete %s.", file_path)
-                raise e
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
 
     def _check_input_data(self):
         """Validate dimensions, bounds, starting point, and TOPAS binary (unless testing).
@@ -531,15 +486,12 @@ class TopasMOOBaseClass(ABC):
         """
         if not np.size(self.ParameterNames) == np.size(self.StartingValues):
             msg = "size of ParameterNames does not match size of StartingValues"
-            logger.error(msg)
             raise InvalidParameterError(msg)
         if not np.size(self.StartingValues) == np.size(self.UpperBounds):
             msg = "size of StartingValues does not match size of UpperBounds"
-            logger.error(msg)
             raise InvalidParameterError(msg)
         if not np.size(self.UpperBounds) == np.size(self.LowerBounds):
             msg = "size of UpperBounds does not match size of LowerBounds"
-            logger.error(msg)
             raise InvalidParameterError(msg)
 
         for i, Parameter in enumerate(self.ParameterNames):
@@ -549,14 +501,12 @@ class TopasMOOBaseClass(ABC):
                     f"For {Parameter}, Starting value {start_value} "
                     f"is less than Lower bound {self.LowerBounds[i]}"
                 )
-                logger.error(msg)
                 raise InvalidParameterError(msg)
             elif start_value > self.UpperBounds[i]:
                 msg = (
                     f"For {Parameter}, Starting value {start_value} "
                     f"is greater than upper bound {self.UpperBounds[i]}"
                 )
-                logger.error(msg)
                 raise InvalidParameterError(msg)
 
         if not self._testing_mode:
@@ -672,15 +622,10 @@ class TopasMOOBaseClass(ABC):
             topas_log_dir = (
                 Path(self.BaseDirectory) / self.SimulationName / "logs" / "TopasLogs"
             )
-            logger.error(
-                f"RunIteration.sh failed with exit code {cmd.returncode}."
-                f"\nSuggestion: look at {topas_log_dir} "
-                f"\nto figure out what went wrong... Quitting"
-            )
+            # _collect_raw_objectives logs this when it penalizes or re-raises.
             raise TopasExecutionError(
-                f"RunIteration.sh failed with exit code {cmd.returncode}."
-                f"\nSuggestion: look at {topas_log_dir} "
-                f"\nto figure out what went wrong... Quitting"
+                f"RunIteration.sh failed with exit code {cmd.returncode}. "
+                f"See {topas_log_dir} for the TOPAS output."
             )
 
     def _update_optimization_logs(self, x, objective_values):
@@ -691,15 +636,14 @@ class TopasMOOBaseClass(ABC):
         """
         with open(self._LogFileLoc, "a") as f:
             Entry = f"Iteration: {self.evaluation_index}"
-            for i, Parameter in enumerate(self.ParameterNames):
-                try:
-                    Entry = Entry + f", {Parameter}: {x[0][i]: 1.2f}"
-                except IndexError:
-                    Entry = Entry + f", {Parameter}: {x[i]: 1.2f}"
+            # Significant digits, not fixed decimals: plots read this file, and
+            # small objectives (e.g. raw TOPAS doses in Gy) must not round to 0.
+            for Parameter, value in zip(self.ParameterNames, np.ravel(x), strict=True):
+                Entry = Entry + f", {Parameter}: {value:.6g}"
 
             # Log all objective function values
             for i, of_val in enumerate(objective_values):
-                Entry = Entry + f", ObjectiveFunction_{i+1}: {of_val: 1.2f}"
+                Entry = Entry + f", ObjectiveFunction_{i+1}: {of_val:.6g}"
 
             Entry = Entry + "\n"
             f.write(Entry)
@@ -717,15 +661,15 @@ class TopasMOOBaseClass(ABC):
         Deliberately concrete rather than abstract: an optimizer with nothing
         extra to restore here should not be forced to declare that.
         ``MOBOOptimizer`` reloads ``logs/MOBOCheckpoint.npz`` from this hook.
-        ``NSGAII_Optimizer`` reloads ``logs/Checkpoint.pkl`` later in
-        ``RunOptimization`` (after the pymoo ``Problem`` exists), so its
-        override of this hook remains a no-op.
+        ``NSGAII_Optimizer`` / ``NSGAIII_Optimizer`` reload ``logs/Checkpoint.pkl`` later in
+        ``RunOptimization`` (after the pymoo ``Problem`` exists), so
+        this hook remains a no-op for them.
         """
 
     def _eligible_rows(self, n_rows):
         """Mask of evaluations that may appear on the running Pareto front.
 
-        All-``True`` here: NSGA-II carries penalized failures and infeasible
+        All-``True`` here: NSGA-II/III carry penalized failures and infeasible
         designs in its population by design, and filtering them out of the
         monitoring front would misrepresent what the algorithm is working with.
 
@@ -785,7 +729,27 @@ class TopasMOOBaseClass(ABC):
         )
 
     def _write_final_log_entry(self):
-        """Append a short completion summary and Pareto count to the log file."""
+        """Append a short completion summary and Pareto count to the log file.
+
+        Warns when the run "completes" without a usable result, which is easy
+        to miss otherwise: every evaluated design failed (the front holds
+        penalty rows for NSGA-II/III, nothing for MOBO), or no design satisfied
+        the constraints (empty front). ``_eval_failed`` covers designs replayed
+        from the cache on resume.
+        """
+        warning = None
+        if self._eval_failed and all(self._eval_failed.values()):
+            warning = (
+                f"Every evaluation failed ({len(self._eval_failed)} designs); the "
+                "Pareto front contains no real results. Check logs/TopasLogs and "
+                "TopasObjectiveFunction."
+            )
+        elif len(self.ParetoObjectives) == 0:
+            warning = (
+                "No feasible design found; the Pareto front is empty. Check the "
+                "constraint values returned by TopasObjectiveFunction (g <= 0 is "
+                "feasible) or widen the parameter bounds."
+            )
         with open(self._LogFileLoc, "a") as f:
             Entry = f'\n{"="*80}\n'
             Entry += f"Optimization Complete: Found {len(self.ParetoObjectives)} Pareto optimal solutions\n"
@@ -794,40 +758,57 @@ class TopasMOOBaseClass(ABC):
                     f"Penalized evaluations (failed or non-finite): "
                     f"{self._n_failed_evaluations}\n"
                 )
+            if warning:
+                Entry += f"WARNING: {warning}\n"
             Entry += f'{"="*80}\n'
             f.write(Entry)
         logger.info(Entry.strip())
+        if warning:
+            logger.warning(warning)
 
     def _plot_convergence(self):
-        """Write objective/parameter convergence and Pareto plots under ``logs``."""
-        apply_style(self.intermediate_plot_style, variant=self.publication_variant)
-        save_loc = Path(self.BaseDirectory) / self.SimulationName / "logs"
+        """Refresh the one-file run monitor, ``logs/RunMonitor.png``.
 
-        plot_objective_convergence(
-            self._LogFileLoc,
-            save_loc / "ConvergencePlot",
-            n_objectives=self.n_objectives,
+        Current Pareto front of the feasible designs so far, plus hypervolume
+        vs evaluations. PNG only: it is overwritten every ``plot_frequency``
+        evaluations.
+        """
+        evaluated, eligible, _failed = self.evaluation_history()
+        if not len(evaluated):
+            return
+        apply_style("publication", variant=self.publication_variant)
+        plot_run_monitor(
+            evaluated,
+            Path(self.BaseDirectory) / self.SimulationName / "logs" / "RunMonitor",
+            eligible=eligible,
+            objective_names=self.ObjectiveNames,
+            maximize=self.Maximize,
             dpi=INTERMEDIATE_PLOT_DPI,
         )
 
-        plot_parameter_convergence(
-            self._LogFileLoc,
-            save_loc / "ParameterConvergence",
-            parameter_names=self.ParameterNames,
-            dpi=INTERMEDIATE_PLOT_DPI,
-        )
+    def evaluation_history(self):
+        """Every evaluation so far, in order, with feasibility and failure masks.
 
-        if len(self.ParetoObjectives) > 0:
-            plot_pareto_front(
-                self.ParetoObjectives,
-                save_loc / "ParetoFront",
-                show_knee_point=True,
-                dpi=INTERMEDIATE_PLOT_DPI,
-            )
+        :returns: ``(objectives, eligible, failed)``: an ``(n, n_objectives)``
+            array (minimized), a mask of designs that satisfy every constraint
+            and did not fail, and a mask of failed (penalized) evaluations.
+            Constraint values and failure flags come from the evaluation cache,
+            which holds every evaluated design, including ones replayed on resume.
+        """
+        F = np.asarray(self.AllObjectiveFunctionValues, dtype=float).reshape(-1, self.n_objectives)
+        failed = np.zeros(len(F), dtype=bool)
+        eligible = np.ones(len(F), dtype=bool)
+        for i, x in enumerate(self.AllDecisionVariables[: len(F)]):
+            key = self._cache_key(x)
+            failed[i] = self._eval_failed.get(key, False)
+            raw = self._eval_cache.get(key)
+            if self.n_constraints and raw is not None:
+                eligible[i] = bool(np.all(np.asarray(raw[self.n_objectives:], dtype=float) <= 0))
+        return F, eligible & ~failed, failed
 
     def GenerateFinalVisualizations(self):
         """Produce publication-style figures under ``logs/FinalResults``."""
-        apply_style(self.plot_style, variant=self.publication_variant)
+        apply_style("publication", variant=self.publication_variant)
 
         SaveLoc = (
             Path(self.BaseDirectory) / self.SimulationName / "logs" / "FinalResults"
@@ -850,92 +831,6 @@ class TopasMOOBaseClass(ABC):
                 logger.warning(
                     f"Failed to delete {file_path} from results folder. Reason: {e}. continuing..."
                 )
-
-    def _normalize_history_populations(self, populations):
-        """Return validated per-generation objective matrices.
-
-        Accepts a single ``(pop_size, n_objectives)`` NumPy matrix, a stacked
-        ``(n_generations, pop_size, n_objectives)`` NumPy array, or any iterable
-        of two-dimensional population matrices. If ``populations`` is ``None``,
-        pymoo's saved result history is used when available.
-
-        Empty histories are logged and returned as an empty list. Malformed,
-        non-numeric, or non-finite population data raises ``ValueError`` with
-        the generation index and expected shape.
-        """
-        if populations is None:
-            result = getattr(self, "res", None)
-            result_history = getattr(result, "history", None)
-            if result_history is None:
-                logger.warning("No history available in optimization results")
-                return []
-            populations = [algo.pop.get("F") for algo in result_history]
-        elif isinstance(populations, np.ndarray):
-            if populations.ndim == 2:
-                populations = [populations]
-            elif populations.ndim == 3:
-                populations = list(populations)
-            else:
-                raise ValueError(
-                    "populations must have shape (pop_size, n_objectives) or "
-                    "(n_generations, pop_size, n_objectives); "
-                    f"got array shape {populations.shape}."
-                )
-        else:
-            try:
-                populations = list(populations)
-            except TypeError as exc:
-                raise ValueError(
-                    "populations must be a two- or three-dimensional NumPy "
-                    "array or an iterable of population matrices."
-                ) from exc
-
-        if len(populations) == 0:
-            logger.warning("No history available in optimization results")
-            return []
-
-        expected_pop_size = getattr(self, "pop_size", None)
-        normalized = []
-        for gen_idx, population in enumerate(populations):
-            try:
-                matrix = np.asarray(population, dtype=float)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"Population for generation {gen_idx} must contain numeric "
-                    "objective values."
-                ) from exc
-
-            if matrix.ndim != 2:
-                raise ValueError(
-                    f"Population for generation {gen_idx} must be a "
-                    "two-dimensional objective matrix; got shape {matrix.shape}."
-                )
-            if matrix.shape[0] == 0:
-                raise ValueError(
-                    f"Population for generation {gen_idx} must not be empty."
-                )
-            if matrix.shape[1] != self.n_objectives:
-                raise ValueError(
-                    f"Population for generation {gen_idx} must have "
-                    f"{self.n_objectives} objective columns; got shape {matrix.shape}."
-                )
-            if (
-                isinstance(expected_pop_size, numbers.Integral)
-                and matrix.shape[0] != expected_pop_size
-            ):
-                raise ValueError(
-                    f"Population for generation {gen_idx} must have "
-                    f"{expected_pop_size} rows to match pop_size; "
-                    f"got shape {matrix.shape}."
-                )
-            if not np.isfinite(matrix).all():
-                raise ValueError(
-                    f"Population for generation {gen_idx} contains non-finite "
-                    "objective values."
-                )
-            normalized.append(matrix.copy())
-
-        return normalized
 
     def _run_pymoo_optimization(self, algorithm_name):
         """Run a configured pymoo optimizer and persist its final state."""
@@ -965,16 +860,19 @@ class TopasMOOBaseClass(ABC):
                 algorithm.n_gen,
             )
 
-        populations = []
         while algorithm.has_next():
             algorithm.next()
-            populations.append(np.asarray(algorithm.pop.get("F")).copy())
             self._save_state_checkpoint(algorithm)
 
         self.res = algorithm.result()
-        self._extract_optimization_history(populations)
-        self.ParetoObjectives = np.atleast_2d(np.asarray(self.res.F, dtype=float))
-        self.ParetoDecisionVars = np.atleast_2d(np.asarray(self.res.X, dtype=float))
+        if self.res.F is None:
+            # pymoo reports no optimum when no design was feasible; keep the
+            # same empty shapes MOBOOptimizer uses instead of a 1x1 NaN array.
+            self.ParetoObjectives = np.empty((0, self.n_objectives))
+            self.ParetoDecisionVars = np.empty((0, len(self.ParameterNames)))
+        else:
+            self.ParetoObjectives = np.atleast_2d(np.asarray(self.res.F, dtype=float))
+            self.ParetoDecisionVars = np.atleast_2d(np.asarray(self.res.X, dtype=float))
         LogParetoFrontToFile(
             self._ParetoLogFileLoc,
             self.ParetoObjectives,
@@ -993,44 +891,19 @@ class TopasMOOBaseClass(ABC):
         self.GenerateFinalVisualizations()
         return self.res
 
-    def _extract_optimization_history(self, populations=None):
-        """Fill hypervolume and population history from per-generation data."""
-        populations = self._normalize_history_populations(populations)
-        if not populations:
-            return
-
-        from pymoo.indicators.hv import HV
-
-        self.PopulationHistory = [
-            (generation, population.copy())
-            for generation, population in enumerate(populations)
-        ]
-        hv_indicator = HV(
-            ref_point=hypervolume_reference_point(np.vstack(populations))
-        )
-        self.HypervolumeHistory = []
-        for generation, objectives in enumerate(populations):
-            try:
-                self.HypervolumeHistory.append(hv_indicator(objectives))
-            except Exception as exc:
-                logger.warning(
-                    "Could not compute hypervolume for generation %d: %s",
-                    generation,
-                    exc,
-                )
-                self.HypervolumeHistory.append(0.0)
-
-        logger.info("Extracted history for %d generations", len(self.HypervolumeHistory))
-        if self.HypervolumeHistory:
-            logger.info("Final hypervolume: %.6f", self.HypervolumeHistory[-1])
-
     def _save_state_checkpoint(self, algorithm):
-        """Persist pymoo state without its user-module problem reference."""
+        """Persist pymoo state without its user-module problem reference.
+
+        Written to a temporary file and swapped in, so a failed dump never
+        replaces the last good checkpoint with a truncated one.
+        """
         problem, history = algorithm.problem, algorithm.history
         algorithm.problem, algorithm.history = None, []
+        checkpoint_tmp = self._checkpoint_loc + ".tmp"
         try:
-            with open(self._checkpoint_loc, "wb") as f:
+            with open(checkpoint_tmp, "wb") as f:
                 pickle.dump(algorithm, f)
+            os.replace(checkpoint_tmp, self._checkpoint_loc)
         except Exception as exc:
             logger.warning("Could not write algorithm checkpoint: %s", exc)
         finally:
@@ -1191,7 +1064,6 @@ class TopasMOOBaseClass(ABC):
                 f"TopasObjectiveFunction must return a list or numpy array. "
                 f"Got {type(objective_values)} instead."
             )
-            logger.error(msg)
             raise ObjectiveFunctionError(msg)
         objective_values = np.asarray(objective_values, dtype=float)
         if objective_values.ndim != 1:
@@ -1209,7 +1081,6 @@ class TopasMOOBaseClass(ABC):
                 f"TopasObjectiveFunction returned {len(objective_values)} values, but {expected} "
                 f"were expected ({what})."
             )
-            logger.error(msg)
             raise ObjectiveFunctionError(msg)
 
         # --- Non-finite values are a runtime failure, not a contract bug.
@@ -1511,6 +1382,16 @@ class _StartPointSampling(FloatRandomSampling):
         return X
 
 
+def _nsga3_tournament(pop, P, **kwargs):
+    """NSGA-III's default tournament comparison, reachable by pickle.
+
+    pymoo >= 0.6.1.6 wraps ``comp_by_cv_then_random`` in a closure decorator
+    that pickle cannot reference, which broke every NSGA-III checkpoint. This
+    module-level delegate keeps identical selection behavior.
+    """
+    return comp_by_cv_then_random(pop, P, **kwargs)
+
+
 class NSGAII_Optimizer(TopasMOOBaseClass):
     """NSGA-II (pymoo) for multi-objective TOPAS optimization.
 
@@ -1587,7 +1468,8 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
         individual per reference direction. Explicit values must be at least
         the number of generated reference directions.
     :param ref_dir_partitions: Number of partitions for the reference direction vectors.
-    :param ref_dir_method: Method for generating the reference direction vectors. Default is "das-dennis", which is a good default for most problems.
+    :param ref_dir_method: ``"das-dennis"`` (default; same as ``"uniform"``) or
+        ``"incremental"``.
     :param seed: RNG seed for the optimization.
     :param verbose: If True, pymoo prints progress on every generation.
     :param eliminate_duplicates: Avoid re-evaluating identical designs (default True).
@@ -1609,7 +1491,7 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
             the number of generated reference directions. Explicit values must
             not be smaller than that number.
         :param ref_dir_partitions: Number of Das-Dennis reference-direction partitions.
-        :param ref_dir_method: Reference-direction generation method.
+        :param ref_dir_method: ``"das-dennis"``, ``"uniform"``, or ``"incremental"``.
         :param seed: RNG seed for the optimization.
         :param verbose: If True, pymoo prints progress on every generation.
         :param eliminate_duplicates: Avoid re-evaluating identical designs (default True).
@@ -1622,6 +1504,13 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
         ):
             raise InvalidParameterError(
                 f"pop_size must be a positive integer or None. Got {pop_size!r}."
+            )
+        # pymoo's other methods ("energy", "layer-energy", ...) take a point
+        # count or layer list instead of n_partitions.
+        if ref_dir_method not in ("das-dennis", "uniform", "incremental"):
+            raise InvalidParameterError(
+                "ref_dir_method must be 'das-dennis', 'uniform', or 'incremental'. "
+                f"Got {ref_dir_method!r}."
             )
         requested_pop_size = None if pop_size is None else int(pop_size)
         self.pop_size = requested_pop_size
@@ -1657,6 +1546,7 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
             pop_size=self.pop_size,
             ref_dirs=self.ref_dirs,
             sampling=_StartPointSampling(self.StartingValues),
+            selection=TournamentSelection(func_comp=_nsga3_tournament),
             crossover=SBX(eta=15, prob=0.9),
             mutation=PM(eta=20),
             eliminate_duplicates=eliminate_duplicates,

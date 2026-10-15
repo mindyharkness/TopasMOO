@@ -36,7 +36,7 @@ optimizer = NSGAII_Optimizer(
     TopasLocation='testing_mode',                    # use a real path for TOPAS
     Overwrite=True,
     pop_size=10,
-    publication_variant='clean',                     # 'clean' | 'nature' | 'ieee' | 'medicalphysics'
+    publication_variant='clean',                     # 'clean' | 'ieee' | 'medicalphysics'
 )
 
 results = optimizer.RunOptimization()
@@ -45,9 +45,8 @@ print(f"Found {len(results.F)} Pareto-optimal solutions!")
 
 ### File 2: Objective Function (`TopasObjectiveFunction.py`)
 
-TopasMOO uses one convention for both NSGA-II/pymoo and MOBO/BoTorch: **every
-returned objective is minimized**. Negate a quantity when larger values are
-better; MOBO handles the internal sign conversion required by BoTorch.
+All objectives are **minimized**. Negate a quantity when larger values are
+better (e.g. negating dose when higher dose is preferred).
 
 ```python
 def TopasObjectiveFunction(ResultsLocation, iteration):
@@ -56,11 +55,9 @@ def TopasObjectiveFunction(ResultsLocation, iteration):
     MUST return a list or numpy array.
     """
     # Load your TOPAS results here
-    # from TopasOpt.utilities import WaterTankData
-    # data = WaterTankData(ResultsLocation, f'dose_itt_{iteration}.bin')
 
     obj1 = calculate_dose_nonuniformity()  # Lower is better
-    obj2 = -calculate_beam_efficiency()    # Negate because higher is better
+    obj2 = -calculate_dose()    # Negate because higher is better
 
     return [obj1, obj2]  # MUST be a list or array
 ```
@@ -89,15 +86,15 @@ python my_main.py
 
 ## What You Get
 
-Everything lands under `<BaseDirectory>/<SimulationName>/`:
+All outputs are stored in  `<BaseDirectory>/<SimulationName>/` by default:
 
 | Path                             | Contents                                                        |
 | -------------------------------- | --------------------------------------------------------------- |
 | `logs/OptimizationLogs.txt`      | One row per evaluation: iteration, parameters, objective values  |
 | `logs/ParetoFront.txt`           | **Official** final front, written once the run completes         |
 | `logs/ParetoFront_Running.txt`   | Mid-run front, refreshed every `plot_frequency` evaluations      |
-| `logs/FinalResults/`             | End-of-run figures (see `final_plots`)                           |
-| `logs/ConvergencePlot.*`         | Intermediate monitoring plots, refreshed during the run          |
+| `logs/FinalResults/`             | End-of-run figures: Pareto front by default (see `final_plots`)  |
+| `logs/RunMonitor.png`            | Current front + hypervolume, refreshed during the run            |
 | `logs/EvalCache.jsonl`           | Completed evaluations, replayed by `resume=True`                 |
 | `logs/Checkpoint.pkl`            | Per-generation algorithm state, used by `resume=True`            |
 | `logs/RunState.json`             | Evaluation counter, so `resume=True` continues its numbering     |
@@ -106,15 +103,11 @@ Everything lands under `<BaseDirectory>/<SimulationName>/`:
 | `Results/`                       | TOPAS scoring output                                             |
 
 `ParetoFront.txt` and `ParetoFront_Running.txt` answer different questions.
-The running file is the non-dominated set over *every evaluation so far* — it
-exists while the run is in flight so you can watch progress. The official file
-is the optimizer's own final population (`res.F` / `res.X`) and matches the
-end-of-run figures exactly. If a run crashes before finishing, only the running
-file will be present.
+The running file is the non-dominated set over *every evaluation so far* and exists while the run is in flight so you can monitor optimization progress. The official file is the optimizer's own final population (`res.F` / `res.X`) and matches the end-of-run figures exactly. If a run crashes before finishing, only the running file will be present.
 
 ## Resuming an Interrupted Run
 
-Re-run the same script with `resume=True` (and the same `SimulationName`):
+TopasMOO has support for resuming interrupted optimizations. Re-run the same script with `resume=True` (and the same `SimulationName`):
 
 ```python
 optimizer = NSGAII_Optimizer(

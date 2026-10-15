@@ -5,7 +5,6 @@ Reference:
         evolutionary algorithms: Empirical results.
 """
 
-import os
 from pathlib import Path
 
 import numpy as np
@@ -46,22 +45,11 @@ def TopasObjectiveFunction(ResultsLocation, iteration):
 
     :returns: List ``[f1, f2]`` of the two ZDT1 objective values.
     """
-    script_dir = Path(ResultsLocation).parent / "TopasScripts"
-    script_file = script_dir / f"DevelopmentExample_itt_{iteration}.tps"
-    x = []
-    if os.path.exists(script_file):
-        with open(script_file) as f:
-            for line in f:
-                # Only PARAM-tagged lines are decision variables; any other
-                # comment containing "=" is ignored rather than parsed as one.
-                if not line.startswith(PARAM_PREFIX):
-                    continue
-                try:
-                    x.append(float(line.split("=")[1].strip().split()[0]))
-                except (ValueError, IndexError):
-                    pass
+    script_file = Path(ResultsLocation).parent / "TopasScripts" / f"DevelopmentExample_itt_{iteration}.tps"
+    with open(script_file) as f:
+        # Only PARAM-tagged lines are decision variables; any other comment
+        # containing "=" is ignored rather than parsed as one.
+        x = [float(line.split("=")[1].split()[0]) for line in f if line.startswith(PARAM_PREFIX)]
     if len(x) < 2:
-        # ZDT1 needs at least two variables for g to be defined.
-        x = [0.5] * 5
+        raise ValueError(f"{script_file} has {len(x)} PARAM lines; ZDT1 needs at least 2.")
     return ZDT1(np.array(x))
-

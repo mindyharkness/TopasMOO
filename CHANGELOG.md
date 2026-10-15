@@ -5,7 +5,7 @@ All notable changes to TopasMOO will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-07-30
+## [0.3.0] - 2026-10-15
 
 First pass at implementing multi-objective Bayesian optimization (MOBO) using
 BoTorch, offered alongside NSGA-II from a shared base class.
@@ -17,8 +17,8 @@ BoTorch, offered alongside NSGA-II from a shared base class.
   `qLogNEHVI` / `qLogNParEGO` over a `ModelListGP` of `SingleTaskGP`s.
   Kept conventions as similar to `NSGAII_Optimizer` as possible: same base-class constructor kwargs,
   `RunOptimization()` entry point, minimization and `g(x) <= 0` conventions,
-  and the same `ParetoObjectives` / `HypervolumeHistory` / `PopulationHistory`
-  attributes the plotting utilities read, so no plotting changes are needed at the moment.
+  and the same `ParetoObjectives` / `ParetoDecisionVars` attributes and
+  `evaluation_history()` the plotting utilities read.
   Intended to allow for fewer evaluations (roughly 100-500 evaluations, parameter
   count comfortably below ~15); prefer NSGA-II for larger budgets or
   higher-dimensional parameter spaces. Two differences from NSGA-II to keep in mind:
@@ -43,24 +43,32 @@ BoTorch, offered alongside NSGA-II from a shared base class.
   uniform rejection sampling in the feasible region (raising if `10_000 *
   n_init` draws come up short), an infeasible `start_point` is skipped with a
   warning, and only feasible observations are eligible for the reported front
-  and hypervolume history. `MOBOOptimizer` rejects the base-class
-  `n_constraints > 0` at construction rather than silently ignoring
-  constraints the caller believes are enforced.
+  and hypervolume history.
+- **Measured constraints in `MOBOOptimizer`.** `n_constraints=k` now works as
+  it does for NSGA-II/III: the callback (or `tell`) returns `n_objectives + k`
+  values, constraints last, with `g <= 0` feasible. Each constraint gets its
+  own GP and is passed to qLogNEHVI / qLogNParEGO as a BoTorch outcome
+  constraint. Only observations feasible under both analytical and measured
+  constraints are eligible for the front and hypervolume. Constraint
+  observations (`train_G`) are checkpointed; older unconstrained checkpoints
+  still load for unconstrained runs.
+- **Recovery from early evaluation failures in MOBO.** With fewer than two
+  successful evaluations, `ask()` logs a warning and draws the next batch as
+  additional initial samples instead of fitting a GP. If the batch budget runs
+  out first, `run()` raises `RuntimeError` rather than finalizing an empty
+  result.
 - **MOBO checkpoint / resume.** State is written to `logs/MOBOCheckpoint.npz`
-  (plus a `.meta.json` sidecar) and validated against the current problem on
-  load. A new `_restore_algorithm_state()` hook on `TopasMOOBaseClass` gives
+  and validated against the current problem on load. A new `_restore_algorithm_state()` hook on `TopasMOOBaseClass` gives
   resume a single trigger, fired from `SetUpDirectoryStructure()`.
 - **Prospective GP prediction correlation plots.** `MOBOOptimizer` records the
   posterior mean for every acquisition candidate before evaluation and carries
   that history through checkpoint/resume. The new
   `plot_gp_prediction_correlation()` public plotting function produces one
   observed-versus-predicted panel per objective with Pearson and Spearman
-  correlations. Completed MOBO runs include this diagnostic by default;
-  NSGA-II output is unchanged.
+  correlations. Opt in with the `gp_correlation` final plot.
 - `hypervolume_reference_point()` in `TopasMOO.metrics`, exported at the top
-  level. Both optimizers now share one reference-point margin formula (the
-  observed nadir pushed out by 10% of the observed span), so hypervolume
-  histories are comparable across algorithms.
+  level. MOBO and the hypervolume plots share one reference-point margin
+  formula (the observed nadir pushed out by 10% of the observed span).
 - `propagate_objective_variance()` in `TopasMOO.mobo`: first-order propagation
   of scorer variances through an objective transformation (`Cov[f] ≈ J Cov[z] Jᵀ`),
   feeding the optional known-noise path (`train_Yvar`, and the opt-in
@@ -75,9 +83,63 @@ BoTorch, offered alongside NSGA-II from a shared base class.
   checkpoint round-trip.
 - README section documenting MOBO, its constraints, the `ask` / `tell` / `run`
   loop, failure handling, and known limitations.
+- **Objective names for plots.** Optional `optimization_params["ObjectiveNames"]`
+  (one label per objective) replaces "Objective 1", "Objective 2", ... on every
+  intermediate and final plot. The plot functions gain an `objective_names`
+  argument, and `RunData` an `objective_names` field.
+  The ApertureOptimization example uses it.
+- **Warning when every evaluation fails.** The run summary in
+  `OptimizationLogs.txt` and a logged warning now say so explicitly, instead of
+  only reporting a Pareto front that contains no real results.
+
+- **New plotting suite.** Two tiers: the end of every run writes only the
+  Pareto front with its knee point (pair projections colored by the remaining
+  objective for 3+ objectives); diagnostics are opt-in via `final_plots`:
+  `pareto_context` (front over all other and infeasible designs in gray),
+  `hypervolume` (hypervolume vs evaluations, comparable across runs),
+  `constraints` (feasible share), `solution_table` (knee point and best design
+  per objective, real values), `parallel` (parameters and objectives on
+  real-unit axes), `decision` (parameter positions within bounds along the
+  front), `parameter_convergence`, `correlation`, `gp_correlation`. During the
+  run a single `logs/RunMonitor.png` (front + hypervolume) replaces the three
+  intermediate plots and their PDFs.
+- **`optimization_params["Maximize"]`**: display flags so a maximized objective
+  (returned negated) is plotted positive under its own name.
+- `TopasMOOBaseClass.evaluation_history()` / `MOBOOptimizer.evaluation_history()`:
+  every evaluation with feasibility and failure masks, used by the plots.
+
+### Removed
+
+- Petal diagrams (`plot_petal_diagram_single`, `plot_petal_diagram_multi`),
+  population evolution (`plot_population_evolution`), the decision heatmap
+  (`plot_decision_heatmap`, replaced by `plot_decision_along_front`), the 3D
+  Pareto plot (`plot_pareto_front_3d`, replaced by projections), the per-objective
+  "running best" plot (`plot_objective_convergence`, which counted infeasible
+  designs), and the per-generation hypervolume plot (`plot_hypervolume_convergence`,
+  replaced by `plot_hypervolume_vs_evaluations`). Their `final_plots` keys
+  (`petal`, `population_evolution`, `decision_heatmap`, `convergence`) are no
+  longer recognized. `RunData` fields `observed_objectives`, `failed_mask`,
+  `hypervolume_history`, and `population_history` are replaced by
+  `evaluated_objectives`, `eligible`, and `failed`.
+- The `fast` style and the `nature` publication variant, and with them the
+  optimizer arguments `plot_style` and `intermediate_plot_style`. The run
+  monitor and the final figures both use `publication_variant` (`clean`,
+  `ieee`, or `medicalphysics`). `fast` was no faster than `clean` once the
+  monitor became PNG-only; `nature` did not meet Nature's figure rules.
+- `HypervolumeHistory` and `PopulationHistory` on `NSGAII_Optimizer` /
+  `NSGAIII_Optimizer`. Nothing read them, and the hypervolume reference point
+  included the 1e6 failure-penalty rows, so the values were meaningless after
+  any failed evaluation. Use `evaluation_history()` with
+  `plot_hypervolume_vs_evaluations`. `MOBOOptimizer` keeps both.
 
 ### Changed
 
+- `calculate_knee_point` picks the solution with the smallest *worst*
+  normalized objective (min-max) instead of the smallest sum, which ran to a
+  corner of concave fronts (e.g. (0.004, 0.002, 1.0) on DTLZ2).
+- Every style embeds TrueType (Type 42) fonts; `clean` and `ieee` PDFs used
+  Type 3 fonts, which journals reject or flag.
+- Figures no longer carry in-figure titles; captions carry them.
 - `SetUpDirectoryStructure()` is now called automatically by
   `RunOptimization()` / `run()` / `ask()`, so it no longer has to be invoked by
   hand first; an explicit call remains supported, though.
@@ -92,11 +154,54 @@ BoTorch, offered alongside NSGA-II from a shared base class.
 - New `_eligible_rows()` hook on the base class: the mid-run
   `ParetoFront_Running.txt` uses the same definition of "reportable" as the
   final front, so a long MOBO run no longer shows a monitoring front that
-  contradicts its own result. NSGA-II's behaviour is unchanged (it carries
+  contradicts its own result. NSGA-II's behavior is unchanged (it carries
   penalized and infeasible designs in its population by design).
-- `plot_hypervolume_convergence()` x-axis label is now "Generation / batch",
-  reflecting that the history holds one entry per algorithm step for either
-  optimizer.
+- The `medicalphysics` publication variant now authors at the journal's true
+  80 mm column with 10 pt text and saves at that exact width (no tight crop).
+  Plot functions take scatter marker edges from the style (`lines.markeredgewidth`),
+  and `plot_pareto_front_2d` places its legend below the axes when it owns the figure.
+- CI lints with `ruff check .`, which now covers `benchmarks/` as well as
+  `TopasMOO/` and `tests/`; `examples/` is excluded from ruff.
+
+### Fixed
+
+- A constrained NSGA-II/III run in which no design is feasible no longer crashes
+  at the end. pymoo returns `res.F = None`; this became a 1x1 NaN array that
+  `LogParetoFrontToFile` could not reshape, so `ParetoFront.txt`, the run
+  summary, and the final plots were never written. The front is now empty (as
+  in `MOBOOptimizer`) and the run summary warns that no feasible design was found.
+- The `medicalphysics` variant now follows the journal's figure guidelines for
+  every plot: widths snap to the 80 mm or 180 mm column (double-column and
+  multi-panel figures were 160 mm or wider than the page), text is never
+  smaller than 10 pt as printed (petal labels were 6-7 pt), the parts of
+  multi-panel figures are labeled (a), (b), ..., and titles wider than the
+  column wrap instead of being cut off.
+- Axis ticks are spaced for the available room (`MaxNLocator(nbins="auto")`)
+  instead of up to 10 per axis, which overprinted labels on long axes (e.g.
+  "8001000120014001600") and in narrow multi-panel grids.
+- A relative `BaseDirectory`, `TopasLocation`, or `G4dataLocation` no longer
+  makes every evaluation fail. `RunIteration.sh` runs from `TopasScripts/`, so
+  relative paths missed the script/binary and every design was penalized while
+  the run still reported a Pareto front. These paths are now made absolute.
+- NSGA-III checkpoints work with pymoo >= 0.6.1.6, which wraps NSGA-III's
+  tournament comparator in a closure that pickle cannot reference (every
+  `Checkpoint.pkl` was 0 bytes). Selection behavior is unchanged.
+- pymoo checkpoints are written to a temporary file and swapped in, so a failed
+  write no longer truncates the previous good checkpoint.
+- `OptimizationLogs.txt` and `ParetoFront.txt` record 6 significant digits
+  instead of 2 / 6 fixed decimals, so small objectives (e.g. raw TOPAS doses in
+  Gy) are no longer written, and plotted, as 0.
+- The `ieee` variant draws underscores. It used Computer Modern (`cmr10`), whose
+  legacy encoding renders `_` as a dot accent (`dose_ratio` became `dose˙ratio`);
+  it now uses a Times-style serif with STIX math.
+- `NSGAIII_Optimizer(ref_dir_method=...)` rejects methods other than
+  `das-dennis`, `uniform`, and `incremental` with an `InvalidParameterError`.
+  pymoo's `energy`, `layer-energy`, `multi-layer`, and `reduction` take a point
+  count instead of partitions and failed with a `TypeError`.
+- `MOBOOptimizer(seed=...)` no longer reseeds NumPy's global random generator;
+  it only ever drew from its own generators.
+- The ZDT1 example objective functions raise when they cannot read the design
+  back from its TOPAS script, instead of silently scoring `x = [0.5] * 5`.
 
 ## [0.2.0] - 2026-07-18
 
