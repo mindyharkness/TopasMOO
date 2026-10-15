@@ -184,6 +184,13 @@ class TestMOBOSmoke:
         Xb = b.ask()
         assert np.allclose(Xa, Xb)
 
+    def test_seed_leaves_global_numpy_rng_alone(self, temp_dir, opt_dir):
+        np.random.seed(7)
+        expected = np.random.rand()
+        np.random.seed(7)
+        _make_mobo(temp_dir, opt_dir, SimulationName="mobo_global_rng", seed=123).ask()
+        assert np.random.rand() == expected
+
     def test_pending_initial_predictions_survive_checkpoint(self, temp_dir, opt_dir):
         opt = _make_mobo(temp_dir, opt_dir, SimulationName="mobo_pending_predictions")
         X = opt.ask()

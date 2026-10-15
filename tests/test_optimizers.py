@@ -295,6 +295,18 @@ class TestNSGAIIIOptimizer:
         assert optimizer.pop_size == 13
         assert optimizer.algorithm.pop_size == 13
 
+    def test_ref_dir_method_without_partitions_fails(self, temp_dir, basic_params, opt_dir):
+        with pytest.raises(InvalidParameterError, match="ref_dir_method"):
+            tmo.NSGAIII_Optimizer(
+                optimization_params=basic_params,
+                BaseDirectory=temp_dir,
+                SimulationName="test_nsga3_energy",
+                OptimizationDirectory=opt_dir,
+                TopasLocation="testing_mode",
+                Overwrite=True,
+                ref_dir_method="energy",
+            )
+
     def test_explicit_pop_size_may_exceed_reference_direction_count(
         self, temp_dir, basic_params, opt_dir
     ):

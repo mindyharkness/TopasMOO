@@ -396,9 +396,6 @@ class MOBOOptimizer(TopasMOOBaseClass):
         self.model = None
         self.res = None
 
-        if self.seed is not None:
-            np.random.seed(self.seed)
-
     # Minimization-maximization boundary conversions
 
     @staticmethod

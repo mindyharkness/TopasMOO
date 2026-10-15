@@ -3,6 +3,7 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from matplotlib.font_manager import FontProperties, findfont
 
 import TopasMOO
 from TopasMOO.exceptions import MalformedOutputError
@@ -155,6 +156,12 @@ def test_publication_style_context_manager_with_variant() -> None:
         fig, ax = plt.subplots()
         ax.plot([0, 1], [0, 1])
         plt.close(fig)
+
+
+def test_ieee_font_draws_underscores() -> None:
+    """cmr10 draws "_" as a dot accent, so the IEEE serif must not resolve to it."""
+    with publication_style("publication", variant="ieee"):
+        assert "cmr10" not in findfont(FontProperties(family="serif"))
 
 
 @pytest.mark.parametrize("variant", ["fast", "nature", "poster"])

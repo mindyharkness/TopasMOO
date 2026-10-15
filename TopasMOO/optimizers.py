@@ -1505,7 +1505,8 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
         individual per reference direction. Explicit values must be at least
         the number of generated reference directions.
     :param ref_dir_partitions: Number of partitions for the reference direction vectors.
-    :param ref_dir_method: Method for generating the reference direction vectors. Default is "das-dennis", which is a good default for most problems.
+    :param ref_dir_method: ``"das-dennis"`` (default; same as ``"uniform"``) or
+        ``"incremental"``.
     :param seed: RNG seed for the optimization.
     :param verbose: If True, pymoo prints progress on every generation.
     :param eliminate_duplicates: Avoid re-evaluating identical designs (default True).
@@ -1527,7 +1528,7 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
             the number of generated reference directions. Explicit values must
             not be smaller than that number.
         :param ref_dir_partitions: Number of Das-Dennis reference-direction partitions.
-        :param ref_dir_method: Reference-direction generation method.
+        :param ref_dir_method: ``"das-dennis"``, ``"uniform"``, or ``"incremental"``.
         :param seed: RNG seed for the optimization.
         :param verbose: If True, pymoo prints progress on every generation.
         :param eliminate_duplicates: Avoid re-evaluating identical designs (default True).
@@ -1540,6 +1541,13 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
         ):
             raise InvalidParameterError(
                 f"pop_size must be a positive integer or None. Got {pop_size!r}."
+            )
+        # pymoo's other methods ("energy", "layer-energy", ...) take a point
+        # count or layer list instead of n_partitions.
+        if ref_dir_method not in ("das-dennis", "uniform", "incremental"):
+            raise InvalidParameterError(
+                "ref_dir_method must be 'das-dennis', 'uniform', or 'incremental'. "
+                f"Got {ref_dir_method!r}."
             )
         requested_pop_size = None if pop_size is None else int(pop_size)
         self.pop_size = requested_pop_size

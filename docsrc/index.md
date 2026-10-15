@@ -158,7 +158,7 @@ Non-dominated Sorting Genetic Algorithm III uses reference directions instead of
 
 **Parameters**:
 
-- `ref_dir_method`: Reference-direction generation method (default: `"das-dennis"`)
+- `ref_dir_method`: `"das-dennis"` (default), `"uniform"`, or `"incremental"`
 - `ref_dir_partitions`: Number of Das-Dennis partitions (default: `12`)
 - `pop_size`: Population size. The default `None` uses one individual per
   generated reference direction. An explicit value must be at least the number
@@ -296,8 +296,10 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
         Number of partitions used to generate Das-Dennis reference directions.
         Direction counts grow combinatorially with this value and the objective
         count, directly affecting the derived population size.
-    ref_dir_method : str, default 'das-dennis'
-        Reference-direction generation method passed to pymoo.
+    ref_dir_method : 'das-dennis' | 'uniform' | 'incremental', default 'das-dennis'
+        Reference-direction generation method passed to pymoo ('uniform' is
+        the same as 'das-dennis'). Other pymoo methods take a point count
+        instead of partitions and are rejected.
     seed : int, optional
         Random seed for the optimization.
     verbose : bool, default False
@@ -308,8 +310,9 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
     Raises
     ------
     InvalidParameterError
-        If pop_size is neither None nor a positive integer, or if an explicit
-        population is smaller than the generated reference-direction count.
+        If pop_size is neither None nor a positive integer, if an explicit
+        population is smaller than the generated reference-direction count,
+        or if ref_dir_method is not one of the values above.
     """
 ```
 
