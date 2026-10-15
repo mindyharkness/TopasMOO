@@ -2,13 +2,13 @@
 """
 Multi-objective optimization drivers for TopasMOO.
 
-Houses ``TopasMOOBaseClass`` (shared by ``NSGAII_Optimizer`` and
-``MOBOOptimizer``) and the pymoo NSGA-II driver. Extends the TopasOpt workflow
+Houses ``TopasMOOBaseClass`` (shared by ``NSGAII_Optimizer``,
+``NSGAIII_Optimizer``, and ``MOBOOptimizer``) and the pymoo NSGA-II/III drivers. Extends the TopasOpt workflow
 to vector-valued objectives and Pareto-front tracking.
 
 Shared conventions (minimization objectives, ``g(x) <= 0`` feasible constraints,
 ``optimization_params`` keys, ``EvaluateObjectives``, logging, and plotting
-attributes) live on the base class so both algorithms speak the same language.
+attributes) live on the base class so every algorithm speaks the same language.
 """
 import json
 import logging
@@ -59,7 +59,7 @@ class TopasMOOBaseClass(ABC):
 
     Provides logging, objective evaluation, script generation, Pareto tracking,
     and shared directory setup for concrete optimizers
-    (``NSGAII_Optimizer``, ``MOBOOptimizer``).
+    (``NSGAII_Optimizer``, ``NSGAIII_Optimizer``, ``MOBOOptimizer``).
 
     Compared to TopasOpt:
         - Vector-valued objectives instead of a single fitness (always
@@ -70,7 +70,7 @@ class TopasMOOBaseClass(ABC):
         - Multi-objective plotting helpers shared across algorithms.
 
     Do not instantiate this class directly; subclass it
-    (e.g. ``NSGAII_Optimizer`` or ``MOBOOptimizer``).
+    (``NSGAII_Optimizer``, ``NSGAIII_Optimizer``, or ``MOBOOptimizer``).
     Constructor parameters are documented on ``__init__``.
     """
 
@@ -98,9 +98,9 @@ class TopasMOOBaseClass(ABC):
 
         :param optimization_params: Dict including ``n_objectives`` (>= 2), ``ParameterNames``,
             ``start_point``, ``UpperBounds``, ``LowerBounds``, and ``n_generations``
-            (the number of NSGA-II generations to run; the legacy alias
+            (the number of NSGA-II/III generations to run; the legacy alias
             ``n_iterations`` is still accepted). ``start_point`` is injected
-            into the initial NSGA-II population as one individual (the rest
+            into the initial NSGA-II/III population as one individual (the rest
             are sampled randomly); it is ignored when resuming from a checkpoint.
             Optional ``ObjectiveNames``: one label per objective (include units)
             used on every plot axis and legend; defaults to "Objective 1", ...
@@ -143,7 +143,7 @@ class TopasMOOBaseClass(ABC):
             constraint value) so the optimization continues instead of
             aborting. Contract violations (wrong type/shape/length of the
             returned vector) always raise regardless of this setting.
-            ``NSGAII_Optimizer`` keeps penalized rows in its population;
+            ``NSGAII_Optimizer`` / ``NSGAIII_Optimizer`` keep penalized rows in their population;
             ``MOBOOptimizer`` quarantines them from the surrogate and the
             reported front (see that class for details).
         :param failure_penalty: Objective value assigned to each objective of a
@@ -366,10 +366,10 @@ class TopasMOOBaseClass(ABC):
         * ``Nitterations`` — deprecated legacy spelling (emits ``FutureWarning``).
 
         This key counts algorithm steps, and **each subclass defines what a step
-        is**: for :class:`NSGAII_Optimizer` it is one NSGA-II population
-        generation, while :class:`~TopasMOO.mobo.MOBOOptimizer` reads it as one
+        is**: for :class:`NSGAII_Optimizer` and :class:`NSGAIII_Optimizer` it
+        is one population generation, while :class:`~TopasMOO.mobo.MOBOOptimizer` reads it as one
         acquisition batch after the initial design. Consult the subclass you are
-        configuring rather than assuming the NSGA-II meaning.
+        configuring rather than assuming the NSGA meaning.
 
         In neither case is a step the same as the per-evaluation
         ``evaluation_index`` counter (see ``EvaluateObjectives``) or
@@ -409,7 +409,7 @@ class TopasMOOBaseClass(ABC):
         if "n_iterations" not in optimization_params:
             raise InvalidParameterError(
                 "optimization_params must contain 'n_generations' "
-                "(number of algorithm steps: NSGA-II generations, or MOBO "
+                "(number of algorithm steps: NSGA-II/III generations, or MOBO "
                 "acquisition batches after the initial design)."
             )
         return optimization_params
@@ -661,15 +661,15 @@ class TopasMOOBaseClass(ABC):
         Deliberately concrete rather than abstract: an optimizer with nothing
         extra to restore here should not be forced to declare that.
         ``MOBOOptimizer`` reloads ``logs/MOBOCheckpoint.npz`` from this hook.
-        ``NSGAII_Optimizer`` reloads ``logs/Checkpoint.pkl`` later in
-        ``RunOptimization`` (after the pymoo ``Problem`` exists), so its
-        override of this hook remains a no-op.
+        ``NSGAII_Optimizer`` / ``NSGAIII_Optimizer`` reload ``logs/Checkpoint.pkl`` later in
+        ``RunOptimization`` (after the pymoo ``Problem`` exists), so
+        this hook remains a no-op for them.
         """
 
     def _eligible_rows(self, n_rows):
         """Mask of evaluations that may appear on the running Pareto front.
 
-        All-``True`` here: NSGA-II carries penalized failures and infeasible
+        All-``True`` here: NSGA-II/III carry penalized failures and infeasible
         designs in its population by design, and filtering them out of the
         monitoring front would misrepresent what the algorithm is working with.
 

@@ -63,6 +63,7 @@ include = ["TopasMOO/plotting/*.mplstyle"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = ["examples"]  # example scripts are not linted
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B"]
@@ -73,7 +74,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B"]
-"examples/*" = ["B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
