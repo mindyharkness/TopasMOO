@@ -6,26 +6,30 @@ from .comprehensive import (
     GenerateComprehensiveVisualizations,
     RunData,
 )
-from .convergence import plot_objective_convergence, plot_parameter_convergence
+from .convergence import plot_parameter_convergence
 from .correlation import plot_parameter_objective_correlation
-from .decision import plot_decision_heatmap
+from .decision import plot_decision_along_front
 from .gp_correlation import plot_gp_prediction_correlation
-from .hypervolume import plot_hypervolume_convergence
 from .parallel import plot_parallel_coordinates
 from .pareto import (
+    display_objectives,
     plot_pareto_front,
     plot_pareto_front_2d,
-    plot_pareto_front_3d,
     plot_pareto_front_projections,
 )
-from .petal import plot_petal_diagram_multi, plot_petal_diagram_single
-from .population import plot_population_evolution
+from .progress import (
+    hypervolume_curve,
+    plot_constraint_check,
+    plot_hypervolume_vs_evaluations,
+    plot_run_monitor,
+)
 from .style import (
     apply_style,
     available_publication_variants,
     publication_style,
     save_publication_figure,
 )
+from .table import plot_solution_table
 
 __all__ = [
     # Style
@@ -33,24 +37,23 @@ __all__ = [
     "available_publication_variants",
     "publication_style",
     "save_publication_figure",
-    # Pareto front
+    # Default: Pareto front
     "plot_pareto_front",
     "plot_pareto_front_2d",
-    "plot_pareto_front_3d",
     "plot_pareto_front_projections",
-    # Convergence
-    "plot_objective_convergence",
+    "display_objectives",
+    # Opt-in diagnostics
+    "plot_hypervolume_vs_evaluations",
+    "hypervolume_curve",
+    "plot_constraint_check",
+    "plot_solution_table",
+    "plot_parallel_coordinates",
+    "plot_decision_along_front",
     "plot_parameter_convergence",
-    "plot_hypervolume_convergence",
-    # Solution analysis
-    "plot_petal_diagram_single",
-    "plot_petal_diagram_multi",
     "plot_parameter_objective_correlation",
     "plot_gp_prediction_correlation",
-    "plot_decision_heatmap",
-    "plot_parallel_coordinates",
-    # Population dynamics
-    "plot_population_evolution",
+    # During the run
+    "plot_run_monitor",
     # Orchestration
     "GenerateComprehensiveVisualizations",
     "RunData",

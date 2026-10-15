@@ -62,11 +62,11 @@ def hypervolume_reference_point(objectives: np.ndarray) -> np.ndarray:
 
 
 def calculate_knee_point(pareto_objectives: np.ndarray) -> int:
-    """Find the knee point (best trade-off) on a Pareto front.
+    """Find the knee point (best balanced trade-off) on a Pareto front.
 
-    Uses a trade-off method: the knee is the solution with the minimum
-    sum of min-max normalized objectives, representing the best balanced
-    compromise across all objectives.
+    The knee is the solution whose *worst* min-max normalized objective is
+    smallest (a Chebyshev / min-max choice). Minimizing the *sum* instead runs
+    to a corner of a concave front (e.g. DTLZ2), picking an extreme design.
 
     :param pareto_objectives: Array of shape ``(n_solutions, n_objectives)``.
         All objectives are assumed to be minimized.
@@ -74,9 +74,7 @@ def calculate_knee_point(pareto_objectives: np.ndarray) -> int:
     :returns: Index (int) of the knee point solution in the input array.
     """
     normalized, _ideal, _nadir = normalize_objectives(pareto_objectives)
-
-    total_objectives = normalized.sum(axis=1)
-    return int(np.argmin(total_objectives))
+    return int(np.argmin(normalized.max(axis=1)))
 
 
 def calculate_crowding_distance(pareto_objectives: np.ndarray) -> np.ndarray:

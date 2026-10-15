@@ -1,5 +1,5 @@
 """
-Convergence plots for optimization progress tracking.
+Parameter convergence: parameter values over evaluations, from the optimization log.
 """
 
 from __future__ import annotations
@@ -94,66 +94,6 @@ def _panel_grid(n_panels, ax):
     return fig, axes, axes_flat, own_fig
 
 
-def plot_objective_convergence(
-    log_file_path: PathLike,
-    save_path: PathLike | None = None,
-    *,
-    n_objectives: int | None = None,
-    ax: Axes | None = None,
-    dpi: int | None = None,
-) -> Axes | np.ndarray | None:
-    """Plot convergence of each objective function over iterations.
-
-    :param log_file_path: Path to the optimization log file.
-    :param save_path: If provided, save ``.pdf`` and ``.png``.
-    :param n_objectives: Number of objectives (inferred from log if None).
-    :param ax: Optional Axes (only used when ``n_objectives == 1``).
-    :param dpi: Raster resolution (defaults to the publication DPI floor).
-
-    :returns: Array of Axes (or single Axes if ``n_objectives == 1``).
-    """
-    apply_style()
-    results = ReadInMultiObjectiveLogFile(log_file_path)
-
-    if "Iteration" not in results:
-        logger.warning("Could not find iteration data in log file")
-        return None
-
-    iterations = results["Iteration"]
-
-    if n_objectives is None:
-        n_objectives = sum(1 for k in results if k.startswith("ObjectiveFunction_"))
-
-    fig, axes, axes_flat, own_fig = _panel_grid(n_objectives, ax)
-
-    accent = style_colors(1)[0]
-    for i in range(n_objectives):
-        key = f"ObjectiveFunction_{i + 1}"
-        if key in results and i < len(axes_flat):
-            panel_ax = axes_flat[i]
-            values = np.asarray(results[key], dtype=float)
-            _raw_evaluations(panel_ax, iterations, values)
-            panel_ax.plot(
-                iterations,
-                np.minimum.accumulate(values),
-                drawstyle="steps-post",
-                linewidth=line_width(1.0),
-                color=accent,
-                zorder=3,
-                label="Running best" if i == 0 else None,
-            )
-            panel_ax.set_xlabel("Iteration")
-            panel_ax.set_ylabel(f"Objective {i + 1}")
-            panel_ax.set_title(f"Convergence: Objective {i + 1}")
-            format_publication_axes(panel_ax, x_integer=True)
-            if i == 0:
-                panel_ax.legend(loc="upper right")
-
-    finalize_figure(fig, save_path, own_fig=own_fig, dpi=dpi)
-
-    return axes
-
-
 def plot_parameter_convergence(
     log_file_path: PathLike,
     save_path: PathLike | None = None,
@@ -211,7 +151,6 @@ def plot_parameter_convergence(
             )
             panel_ax.set_xlabel("Iteration")
             panel_ax.set_ylabel(name)
-            panel_ax.set_title(f"Parameter: {name}")
             format_publication_axes(panel_ax, x_integer=True)
             if i == 0:
                 panel_ax.legend(loc="upper right")

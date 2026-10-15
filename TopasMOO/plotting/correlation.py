@@ -11,6 +11,7 @@ from typing import Sequence, Union
 import matplotlib.pyplot as plt
 import numpy as np
 
+from .pareto import display_objectives
 from .style import (
     SINGLE_COL_WIDTH,
     apply_style,
@@ -33,7 +34,7 @@ def plot_parameter_objective_correlation(
     *,
     parameter_names: Sequence[str] | None = None,
     objective_names: Sequence[str] | None = None,
-    title: str = "Parameter-Objective Correlations",
+    maximize: Sequence[bool] | None = None,
     dpi: int | None = None,
 ) -> np.ndarray:
     """Grid of scatter plots: each parameter vs. each objective.
@@ -43,11 +44,13 @@ def plot_parameter_objective_correlation(
     :param save_path: If provided, save ``.pdf`` and ``.png``.
     :param parameter_names: Labels for parameters.
     :param objective_names: Labels for objectives.
-    :param title: Figure super-title.
+    :param maximize: Per-objective display flags (maximized objectives are
+        shown with their sign flipped).
     :param dpi: Raster resolution (defaults to the publication DPI floor).
 
     :returns: 2-D array of Axes.
     """
+    objectives = display_objectives(objectives, maximize)
     apply_style()
     n_params = decision_vars.shape[1]
     n_obj = objectives.shape[1]
@@ -79,8 +82,6 @@ def plot_parameter_objective_correlation(
                 lbl = objective_names[i] if objective_names else f"Obj {i + 1}"
                 ax.set_ylabel(lbl)
             format_publication_axes(ax)
-
-    fig.suptitle(title)
 
     finalize_figure(fig, save_path, dpi=dpi)
 

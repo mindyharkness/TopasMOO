@@ -403,6 +403,33 @@ def test_no_feasible_design_finishes_with_empty_front(tmp_path, cls, kw):
     assert "No feasible design found" in Path(opt._LogFileLoc).read_text()
 
 
+def test_evaluation_history_marks_infeasible_and_failed_designs(tmp_path):
+    # Feeds the context plot, hypervolume, constraint check and run monitor.
+    _write_minimal_project(tmp_path)
+    (tmp_path / "TopasObjectiveFunction.py").write_text(
+        "def TopasObjectiveFunction(ResultsLocation, iteration):\n"
+        "    return [0.1, 0.2, 1.0 if iteration % 2 else -1.0]  # odd iterations infeasible\n"
+    )
+    opt = _make(tmp_path, "History", n_generations=1, n_constraints=1, plot_frequency=1)
+    calls = {"n": 0}
+    original = opt._run_topas_model
+
+    def third_run_fails():
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise TopasExecutionError("simulated non-zero exit")
+        return original()
+
+    opt._run_topas_model = third_run_fails
+    opt.RunOptimization()
+    _F, eligible, failed = opt.evaluation_history()
+    assert failed.tolist() == [False, False, True, False]
+    assert eligible.tolist() == [True, False, False, False]
+    logs = tmp_path / "History" / "logs"
+    assert (logs / "RunMonitor.png").is_file()
+    assert not (logs / "ConvergencePlot.png").exists()
+
+
 def test_relative_base_directory_runs_topas(tmp_path, monkeypatch):
     # RunIteration.sh runs with cwd=TopasScripts, so a relative BaseDirectory
     # used to make bash miss the script and penalize every evaluation.

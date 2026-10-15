@@ -19,7 +19,7 @@ is feasible only when its off-axis peak is at most **80%** of its phantom peak:
 ```python
 return [
     off_axis_peak,                         # minimize, pGy
-    -peak_dose,                            # maximize, pGy
+    -peak_dose,                            # maximize, pGy (plots show +peak via "Maximize")
     off_axis_peak / peak_dose - 0.80,      # g <= 0 is feasible
 ]
 ```

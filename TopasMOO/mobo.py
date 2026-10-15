@@ -573,6 +573,20 @@ class MOBOOptimizer(TopasMOOBaseClass):
         feasible = self.feasible_mask()
         return feasible & ~self._failed_prefix(len(feasible))
 
+    def evaluation_history(self):
+        """Committed observations with MOBO's own eligibility, for plotting.
+
+        Overrides the base class so analytical ``decision_constraints`` and
+        ``objective_fn`` runs (which bypass the evaluation cache) are covered.
+
+        :returns: ``(train_Y, eligible_mask(), failed)``.
+        """
+        if self.train_Y is None or not len(self.train_Y):
+            empty = np.zeros(0, dtype=bool)
+            return np.empty((0, self.n_objectives)), empty, empty
+        Y = np.asarray(self.train_Y, dtype=float)
+        return Y, self.eligible_mask(), self._failed_prefix(len(Y))
+
     def _eligible_rows(self, n_rows: int) -> np.ndarray:
         """Reportable evaluations for the base class's running Pareto front.
 

@@ -43,8 +43,7 @@ from .exceptions import (
 from .io import LogParetoFrontToFile, ReadInMultiObjectiveLogFile
 from .metrics import calculate_dominance_rank, hypervolume_reference_point
 from .plotting import GenerateComprehensiveVisualizations
-from .plotting.convergence import plot_objective_convergence, plot_parameter_convergence
-from .plotting.pareto import plot_pareto_front
+from .plotting.progress import plot_run_monitor
 from .plotting.style import (
     INTERMEDIATE_PLOT_DPI,
     apply_style,
@@ -105,6 +104,11 @@ class TopasMOOBaseClass(ABC):
             ``n_iterations`` is still accepted). ``start_point`` is injected
             into the initial NSGA-II population as one individual (the rest
             are sampled randomly); it is ignored when resuming from a checkpoint.
+            Optional ``ObjectiveNames``: one label per objective (include units)
+            used on every plot axis and legend; defaults to "Objective 1", ...
+            Optional ``Maximize``: one flag per objective. The objective function
+            still returns a maximized quantity negated (everything is
+            minimized); plots show it with its sign flipped, under its own name.
         :param BaseDirectory: Existing root directory for simulation outputs.
         :param SimulationName: Subfolder name for this optimization run.
         :param OptimizationDirectory: Directory containing ``GenerateTopasScripts.py`` and
@@ -199,6 +203,28 @@ class TopasMOOBaseClass(ABC):
                 f"Use TopasOpt for single-objective problems."
             )
             raise InvalidParameterError(msg)
+
+        # Optional plot labels; None keeps each plot's generic default.
+        objective_names = optimization_params.get("ObjectiveNames")
+        if objective_names is not None and (
+            isinstance(objective_names, str) or len(objective_names) != self.n_objectives
+        ):
+            raise InvalidParameterError(
+                f"ObjectiveNames must be a list of {self.n_objectives} names, one "
+                f"per objective. Got {objective_names!r}."
+            )
+        self.ObjectiveNames = (
+            None if objective_names is None else [str(name) for name in objective_names]
+        )
+        maximize = optimization_params.get("Maximize")
+        if maximize is not None and (
+            isinstance(maximize, str) or len(maximize) != self.n_objectives
+        ):
+            raise InvalidParameterError(
+                f"Maximize must be a list of {self.n_objectives} booleans, one per "
+                f"objective. Got {maximize!r}."
+            )
+        self.Maximize = None if maximize is None else [bool(flag) for flag in maximize]
 
         self.n_constraints = int(n_constraints)
         if self.n_constraints < 0:
@@ -424,6 +450,8 @@ class TopasMOOBaseClass(ABC):
         """
         skip_keys = {
             "ParameterNames",
+            "ObjectiveNames",
+            "Maximize",
             "Nitterations",
             "n_iterations",
             "n_generations",
@@ -763,31 +791,44 @@ class TopasMOOBaseClass(ABC):
             logger.warning(warning)
 
     def _plot_convergence(self):
-        """Write objective/parameter convergence and Pareto plots under ``logs``."""
+        """Refresh the one-file run monitor, ``logs/RunMonitor.png``.
+
+        Current Pareto front of the feasible designs so far, plus hypervolume
+        vs evaluations. PNG only: it is overwritten every ``plot_frequency``
+        evaluations.
+        """
+        evaluated, eligible, _failed = self.evaluation_history()
+        if not len(evaluated):
+            return
         apply_style(self.intermediate_plot_style, variant=self.publication_variant)
-        save_loc = Path(self.BaseDirectory) / self.SimulationName / "logs"
-
-        plot_objective_convergence(
-            self._LogFileLoc,
-            save_loc / "ConvergencePlot",
-            n_objectives=self.n_objectives,
+        plot_run_monitor(
+            evaluated,
+            Path(self.BaseDirectory) / self.SimulationName / "logs" / "RunMonitor",
+            eligible=eligible,
+            objective_names=self.ObjectiveNames,
+            maximize=self.Maximize,
             dpi=INTERMEDIATE_PLOT_DPI,
         )
 
-        plot_parameter_convergence(
-            self._LogFileLoc,
-            save_loc / "ParameterConvergence",
-            parameter_names=self.ParameterNames,
-            dpi=INTERMEDIATE_PLOT_DPI,
-        )
+    def evaluation_history(self):
+        """Every evaluation so far, in order, with feasibility and failure masks.
 
-        if len(self.ParetoObjectives) > 0:
-            plot_pareto_front(
-                self.ParetoObjectives,
-                save_loc / "ParetoFront",
-                show_knee_point=True,
-                dpi=INTERMEDIATE_PLOT_DPI,
-            )
+        :returns: ``(objectives, eligible, failed)``: an ``(n, n_objectives)``
+            array (minimized), a mask of designs that satisfy every constraint
+            and did not fail, and a mask of failed (penalized) evaluations.
+            Constraint values and failure flags come from the evaluation cache,
+            which holds every evaluated design, including ones replayed on resume.
+        """
+        F = np.asarray(self.AllObjectiveFunctionValues, dtype=float).reshape(-1, self.n_objectives)
+        failed = np.zeros(len(F), dtype=bool)
+        eligible = np.ones(len(F), dtype=bool)
+        for i, x in enumerate(self.AllDecisionVariables[: len(F)]):
+            key = self._cache_key(x)
+            failed[i] = self._eval_failed.get(key, False)
+            raw = self._eval_cache.get(key)
+            if self.n_constraints and raw is not None:
+                eligible[i] = bool(np.all(np.asarray(raw[self.n_objectives:], dtype=float) <= 0))
+        return F, eligible & ~failed, failed
 
     def GenerateFinalVisualizations(self):
         """Produce publication-style figures under ``logs/FinalResults``."""

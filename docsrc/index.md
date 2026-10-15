@@ -50,6 +50,8 @@ optimization_params = {
     'start_point': np.array([5.0, 10.0]),
     'n_generations': 30,
     'n_objectives': 2,
+    'ObjectiveNames': ['Dose error (%)', 'Delivery time (s)'],  # optional plot labels
+    # 'Maximize': [False, True],  # optional: show a negated (maximized) objective positive
 }
 
 optimizer = NSGAII_Optimizer(
@@ -214,6 +216,10 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
     optimization_params : dict
         Must include 'n_objectives' (>=2), 'ParameterNames', 'start_point',
         'UpperBounds', 'LowerBounds', 'n_generations' (alias: 'n_iterations').
+        Optional 'ObjectiveNames': one label per objective (include units),
+        used on every plot; defaults to 'Objective 1', 'Objective 2', ...
+        Optional 'Maximize': one flag per objective; plots show a maximized
+        (returned negated) objective with its sign flipped.
     BaseDirectory : str | Path
         Existing root directory under which 'SimulationName' is created.
     SimulationName : str
@@ -228,15 +234,15 @@ class NSGAII_Optimizer(TopasMOOBaseClass):
     KeepAllResults : bool, default True
         If False, clear 'Results/' before each iteration.
     plot_frequency : int, default 10
-        Number of objective *evaluations* between intermediate convergence plots
-        (not generations).
+        Number of objective *evaluations* between refreshes of the run monitor,
+        logs/RunMonitor.png (not generations).
     final_plots : 'default' | 'all' | iterable[str] | None
-        Set of plot keys to generate at the end of optimization (see
-        :func:`TopasMOO.plotting.GenerateComprehensiveVisualizations`).
+        End-of-run figures. The default writes only the Pareto front; see
+        docsrc/visualization.md for the opt-in keys.
     plot_style : 'fast' | 'publication', default 'publication'
         Style for the end-of-run figures.
     intermediate_plot_style : 'fast' | 'publication', default 'fast'
-        Style for plots generated mid-optimization.
+        Style for the run monitor.
     publication_variant : 'clean' | 'nature' | 'ieee' | 'medicalphysics', default 'clean'
         Variant of the publication style.
     n_constraints : int, default 0
@@ -518,8 +524,8 @@ For campaigns where a crash means the objective is genuinely undefined rather th
 
 ### GP prediction correlation
 
-Completed MOBO runs generate `logs/FinalResults/GPPredictionCorrelation` as PDF and PNG by default. The figure compares the posterior mean recorded when
-each candidate was proposed against the objective value later observed, with one panel and Pearson/Spearman correlations per objective. Initial Sobol designs are omitted (no GP exists yet), and penalized failures are excluded. Use `final_plots="gp_correlation"` to request only this diagnostic, or call `TopasMOO.plotting.plot_gp_prediction_correlation` directly.
+Pass `final_plots="gp_correlation"` (or `"all"`) to write `logs/FinalResults/GPPredictionCorrelation` as PDF and PNG. The figure compares the posterior mean recorded when
+each candidate was proposed against the objective value later observed, with one panel and Pearson/Spearman correlations per objective. Initial Sobol designs are omitted (no GP exists yet), and penalized failures are excluded. You can also call `TopasMOO.plotting.plot_gp_prediction_correlation` directly.
 
 ### Known limitations
 

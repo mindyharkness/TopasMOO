@@ -93,8 +93,8 @@ All outputs are stored in  `<BaseDirectory>/<SimulationName>/` by default:
 | `logs/OptimizationLogs.txt`      | One row per evaluation: iteration, parameters, objective values  |
 | `logs/ParetoFront.txt`           | **Official** final front, written once the run completes         |
 | `logs/ParetoFront_Running.txt`   | Mid-run front, refreshed every `plot_frequency` evaluations      |
-| `logs/FinalResults/`             | End-of-run figures (see `final_plots`)                           |
-| `logs/ConvergencePlot.*`         | Intermediate monitoring plots, refreshed during the run          |
+| `logs/FinalResults/`             | End-of-run figures: Pareto front by default (see `final_plots`)  |
+| `logs/RunMonitor.png`            | Current front + hypervolume, refreshed during the run            |
 | `logs/EvalCache.jsonl`           | Completed evaluations, replayed by `resume=True`                 |
 | `logs/Checkpoint.pkl`            | Per-generation algorithm state, used by `resume=True`            |
 | `logs/RunState.json`             | Evaluation counter, so `resume=True` continues its numbering     |

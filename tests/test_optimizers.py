@@ -54,6 +54,40 @@ def three_objective_params():
 # temp_dir / opt_dir come from tests/conftest.py.
 
 
+class TestObjectiveNames:
+    def _make(self, temp_dir, opt_dir, params):
+        return tmo.NSGAII_Optimizer(
+            optimization_params=params,
+            BaseDirectory=temp_dir,
+            SimulationName="names",
+            OptimizationDirectory=opt_dir,
+            TopasLocation="testing_mode",
+        )
+
+    def test_names_reach_plot_data(self, temp_dir, basic_params, opt_dir):
+        from TopasMOO.plotting import RunData
+
+        names = ["Dose (Gy)", "Time (s)"]
+        opt = self._make(temp_dir, opt_dir, {**basic_params, "ObjectiveNames": names})
+        assert RunData.from_optimizer(opt).objective_names == names
+
+    @pytest.mark.parametrize("names", [["only one"], "ab"])
+    def test_invalid_names_rejected(self, temp_dir, basic_params, opt_dir, names):
+        with pytest.raises(InvalidParameterError, match="ObjectiveNames"):
+            self._make(temp_dir, opt_dir, {**basic_params, "ObjectiveNames": names})
+
+    def test_maximize_flags_reach_plot_data(self, temp_dir, basic_params, opt_dir):
+        from TopasMOO.plotting import RunData
+
+        opt = self._make(temp_dir, opt_dir, {**basic_params, "Maximize": [False, True]})
+        assert RunData.from_optimizer(opt).maximize == [False, True]
+
+    @pytest.mark.parametrize("flags", [[True], "ab"])
+    def test_invalid_maximize_rejected(self, temp_dir, basic_params, opt_dir, flags):
+        with pytest.raises(InvalidParameterError, match="Maximize"):
+            self._make(temp_dir, opt_dir, {**basic_params, "Maximize": flags})
+
+
 class TestMultiObjectiveRequirements:
     """Test that TopasMOO correctly enforces multi-objective requirements"""
 

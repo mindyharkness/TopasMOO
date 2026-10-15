@@ -22,12 +22,8 @@ from TopasMOO.plotting.style import (
 
 
 def test_default_final_plots_are_lean() -> None:
-    assert DEFAULT_FINAL_PLOTS == {
-        "pareto",
-        "convergence",
-        "parameter_convergence",
-        "hypervolume",
-    }
+    # Only the Pareto front by default; every diagnostic is opt-in.
+    assert DEFAULT_FINAL_PLOTS == {"pareto"}
 
 
 def test_resolve_final_plots_treats_bare_key_as_singleton() -> None:
@@ -71,21 +67,49 @@ def test_plot_pareto_front_dispatches_by_objective_count(tmp_path) -> None:
     assert (tmp_path / "p3.png").is_file()
 
 
-def test_generate_comprehensive_adds_gp_correlation_for_mobo_default(tmp_path) -> None:
+def test_generate_comprehensive_gp_correlation_is_opt_in(tmp_path) -> None:
     observed = np.array([[1.0, 3.0], [2.0, 2.0], [3.0, 1.0]])
     run = RunData(
         pareto_objectives=observed,
         n_objectives=2,
         parameter_names=["x1", "x2"],
-        observed_objectives=observed,
+        evaluated_objectives=observed,
         gp_prediction_history=observed + 0.1,
-        failed_mask=np.zeros(3, dtype=bool),
+        failed=np.zeros(3, dtype=bool),
     )
 
-    GenerateComprehensiveVisualizations(run, tmp_path)
+    GenerateComprehensiveVisualizations(run, tmp_path / "default")
+    assert not (tmp_path / "default" / "GPPredictionCorrelation.png").exists()
 
-    assert (tmp_path / "GPPredictionCorrelation.pdf").is_file()
-    assert (tmp_path / "GPPredictionCorrelation.png").is_file()
+    GenerateComprehensiveVisualizations(run, tmp_path / "gp", final_plots="gp_correlation")
+    assert (tmp_path / "gp" / "GPPredictionCorrelation.pdf").is_file()
+    assert (tmp_path / "gp" / "GPPredictionCorrelation.png").is_file()
+
+
+def test_generate_comprehensive_all_writes_every_figure_with_data(tmp_path) -> None:
+    front = np.array([[0.1, 0.9], [0.5, 0.5], [0.9, 0.1]])
+    run = RunData(
+        pareto_objectives=front,
+        n_objectives=2,
+        parameter_names=["x1", "x2"],
+        pareto_decision_vars=front,
+        evaluated_objectives=np.vstack([front, [[1.0, 1.0]]]),
+        eligible=np.array([True, True, True, False]),
+        n_constraints=1,
+        lower_bounds=[0, 0],
+        upper_bounds=[1, 1],
+    )
+    GenerateComprehensiveVisualizations(run, tmp_path, final_plots="all")
+    assert {p.stem for p in tmp_path.glob("*.png")} == {
+        "ParetoFront_Final",
+        "ParetoFront_Context",
+        "HypervolumeVsEvaluations",
+        "ConstraintCheck",
+        "SolutionTable",
+        "ParallelCoordinates_Final",
+        "DecisionVariables",
+        "ParameterObjectiveCorrelation",
+    }
 
 
 def test_root_package_exposes_publication_variants() -> None:

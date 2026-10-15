@@ -18,8 +18,8 @@ Production TOPAS studies should increase `n_init` and `n_generations` (acquisiti
 
 ## GP prediction correlation
 
-The completed run writes `logs/FinalResults/GPPredictionCorrelation.pdf` and
-`.png`. Each objective gets an observed-versus-predicted panel using the GP
+With `final_plots="gp_correlation"` (or `"all"`), the completed run writes
+`logs/FinalResults/GPPredictionCorrelation.pdf` and `.png`. Each objective gets an observed-versus-predicted panel using the GP
 posterior mean saved when the candidate was proposed. The Pearson and Spearman
 values therefore assess prospective surrogate quality; the Sobol initial
 design is omitted because it has no pre-evaluation GP prediction.

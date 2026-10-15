@@ -1,141 +1,109 @@
 # Plotting / Visualization
 
-Publication-quality visualizations for multi-objective optimization in TopasMOO.
+Publication-quality figures for multi-objective optimization in TopasMOO.
 
-## Features
+Every figure follows the same rules: one message per figure, no titles (captions
+carry them), gray for context, color only where it encodes a value, PDF + PNG
+output (600 dpi), and fonts embedded as TrueType so journals accept the PDFs.
 
-- Bundled matplotlib style sheets (`fast` and `publication` variants) — no
-  scienceplots or LaTeX install required
-- Dual PDF + PNG output (default raster DPI 600)
-- Pareto fronts, parallel coordinates, petal diagrams, convergence,
-  hypervolume, decision–objective views, and MOBO GP diagnostics
-- One-call final suite via `GenerateComprehensiveVisualizations`
+## What a run writes
 
-## Quick Start
+| When | File | Contents |
+| --- | --- | --- |
+| During the run, every `plot_frequency` evaluations | `logs/RunMonitor.png` | Current Pareto front of the feasible designs + hypervolume vs evaluations. PNG only; overwritten. |
+| End of every run (default) | `logs/FinalResults/ParetoFront_Final.{pdf,png}` | Pareto front and knee point. With 3+ objectives: one panel per objective pair, colored by the remaining objective. |
+| End of run, opt-in | `logs/FinalResults/…` | The diagnostics below, selected with `final_plots`. |
 
-```python
-from TopasMOO.plotting import (
-    plot_pareto_front_2d,
-    plot_parallel_coordinates,
-)
-from TopasMOO.plotting.style import apply_style
-
-apply_style("publication", variant="clean")
-
-plot_pareto_front_2d(
-    pareto_objectives,
-    "pareto_front",
-    true_front=true_pareto_front,
-    show_knee_point=True,
-)
-
-plot_parallel_coordinates(
-    pareto_objectives,
-    "parallel",
-    objective_names=["Dose Error", "Efficiency"],
-)
-```
-
-Save paths are **bases without extension**; both `.pdf` and `.png` are written.
-
-For a no-TOPAS demo of the core plots:
-
-```bash
-python examples/quickstart.py
-```
-
-## Visualization Types
-
-### Pareto fronts
-
-- `plot_pareto_front_2d` — 2-objective scatter, optional true-front overlay and knee point
-- `plot_pareto_front_3d` — 3-objective scatter
-- `plot_pareto_front_projections` — pairwise 2D panels for 4+ objectives
-
-### Trade-offs and solution comparison
-
-- `plot_parallel_coordinates` — normalized objectives on parallel axes
-- `plot_petal_diagram_single` / `plot_petal_diagram_multi` — Nightingale roses
-  (**require ≥3 objectives**)
-
-### Decision space
-
-- `plot_decision_heatmap` — normalized parameter heatmap + boxplots
-- `plot_parameter_objective_correlation` — parameter × objective scatter grid
-
-### Progress
-
-- `plot_objective_convergence` / `plot_parameter_convergence` — from optimization logs
-- `plot_hypervolume_convergence` — hypervolume vs generation
-- `plot_population_evolution` — generation overlays (first two objectives)
-
-### MOBO diagnostics
-
-- `plot_gp_prediction_correlation` — one observed-versus-predicted panel per
-  objective, with a perfect-prediction line and Pearson/Spearman correlations
-
-The GP diagnostic uses the posterior mean recorded when `MOBOOptimizer.ask()`
-proposes each candidate, before the objective is evaluated. Initial-design
-rows have no fitted GP and are omitted, as are penalized evaluation failures.
-This makes the figure a prospective model check rather than an optimistic fit
-of the final GP to its own training data.
+## Labels and maximized objectives
 
 ```python
-from TopasMOO.plotting import plot_gp_prediction_correlation
-
-plot_gp_prediction_correlation(
-    optimizer.train_Y,
-    optimizer.gp_prediction_history,
-    "gp_prediction_correlation",
-    objective_names=["Dose error", "Delivery time"],
-    valid_mask=~optimizer.train_failed,
-)
+optimization_params = {
+    ...,
+    "ObjectiveNames": ["Off-axis peak dose (pGy)", "Peak dose (pGy)"],
+    "Maximize": [False, True],
+}
 ```
 
-## Default final suite
+`ObjectiveNames` labels every axis, legend, and table (default "Objective 1",
+...). TopasMOO minimizes every objective, so the objective function still
+returns a maximized quantity negated (`-peak_dose`); `Maximize` only changes the
+display, so plots show `+peak_dose` under its own name.
 
-`NSGAII_Optimizer.RunOptimization()` and `NSGAIII_Optimizer.RunOptimization()`
-write figures under
-`{BaseDirectory}/{SimulationName}/logs/FinalResults/` using
-`GenerateComprehensiveVisualizations`.
+## Knee point
 
-**Default keys** (`final_plots=None` or `"default"`):
+The highlighted solution is the **knee point**: the Pareto solution whose worst
+normalized objective is smallest (`TopasMOO.metrics.calculate_knee_point`). It is
+the most balanced trade-off and, unlike a minimum-sum choice, does not run to a
+corner of a concave front.
 
-- `pareto`
-- `convergence`
-- `parameter_convergence`
-- `hypervolume` (skipped quietly when history is unavailable)
+## Opt-in diagnostics
 
-MOBO runs also generate `GPPredictionCorrelation.{pdf,png}` by default once
-prospective predictions are available. NSGA-II output is unchanged.
+Select with `final_plots=` on the optimizer, or call
+`GenerateComprehensiveVisualizations` on a finished optimizer (or a `RunData`).
+`final_plots="all"` writes every figure the run has data for.
 
-Pass `final_plots="all"`, a single key such as `final_plots="pareto"`, or an
-explicit set for parallel coordinates, decision heatmaps, population evolution,
-petal diagrams, parameter correlations, and GP correlation plots. The explicit
-key for the MOBO diagnostic is `final_plots="gp_correlation"`.
+| Key | File | Shows |
+| --- | --- | --- |
+| `pareto_context` | `ParetoFront_Context` | 2-objective front over every other design (gray dots) and infeasible designs (gray ×). Axes frame the feasible designs. |
+| `hypervolume` | `HypervolumeVsEvaluations` | Hypervolume of the feasible designs found after each number of evaluations (= TOPAS runs). |
+| `constraints` | `ConstraintCheck` | Share of feasible designs over a moving window. Constrained runs only. |
+| `solution_table` | `SolutionTable` | Knee point and the best design for each objective, with real objective and parameter values. |
+| `parallel` | `ParallelCoordinates_Final` | Parameters and objectives on real-unit axes (ends = bounds / front range); gray lines, knee point highlighted. |
+| `decision` | `DecisionVariables` | Where each parameter sits within its bounds, for every Pareto solution ordered along the front. |
+| `parameter_convergence` | `ParameterConvergence_Final` | Parameter values over evaluations, from `OptimizationLogs.txt`. |
+| `correlation` | `ParameterObjectiveCorrelation` | Each parameter vs each objective across the Pareto set. |
+| `gp_correlation` | `GPPredictionCorrelation` | MOBO only: GP prediction made before each evaluation vs the observed value. |
 
 ```python
 from TopasMOO.plotting import GenerateComprehensiveVisualizations
 
-GenerateComprehensiveVisualizations(
-    optimizer,
-    save_dir="custom_plots",
-    final_plots="all",  # or {"pareto", "parallel", "decision_heatmap"}
+GenerateComprehensiveVisualizations(optimizer, "custom_plots", final_plots="all")
+GenerateComprehensiveVisualizations(optimizer, "custom_plots",
+                                    final_plots={"pareto_context", "solution_table"})
+```
+
+### Comparing runs
+
+`plot_hypervolume_vs_evaluations` accepts a list of runs and puts them on one
+reference point, so algorithms with different population or batch sizes can be
+compared per TOPAS run:
+
+```python
+from TopasMOO.plotting import plot_hypervolume_vs_evaluations
+
+runs = [opt.evaluation_history() for opt in (nsga2, mobo)]
+plot_hypervolume_vs_evaluations(
+    [F for F, _eligible, _failed in runs],
+    "hv_comparison",
+    eligible=[eligible for _F, eligible, _failed in runs],
+    labels=["NSGA-II", "MOBO"],
 )
 ```
+
+### MOBO GP prediction correlation
+
+The GP diagnostic uses the posterior mean recorded when `MOBOOptimizer.ask()`
+proposes each candidate, before the objective is evaluated. Initial-design rows
+have no fitted GP and are omitted, as are penalized evaluation failures. This
+makes the figure a prospective model check rather than an optimistic fit of the
+final GP to its own training data.
 
 ## Styling
 
 Two base styles, with four `publication` variants:
 
-- `fast` — cleaned-up matplotlib defaults for in-loop monitoring
+- `fast` — cleaned-up matplotlib defaults for the in-run monitor
 - `publication`:
   - `clean` (default) — subtle grid, sans-serif, colorblind-safe palette
   - `nature` — bold sans-serif, high contrast
   - `ieee` — Computer Modern mathtext serif, boxed axes, dense ticks
-  - `medicalphysics` — 10 pt sans-serif text, authored at the journal's 80 mm column
+  - `medicalphysics` — follows the [Medical Physics author guidelines](https://aapm.onlinelibrary.wiley.com/hub/journal/24734209/about/author-guidelines):
+    sans-serif text (Arial/Helvetica/Calibri), no bold, figures exactly 80 mm
+    (single column) or 180 mm (double column; multi-panel grids snap to this)
+    wide so text prints at 10 pt or larger, (a), (b), ... labels on the parts of
+    multi-panel figures, 600 dpi, and fonts embedded as TrueType
 
-Optimizer defaults: intermediate plots use `fast`; final plots use
+Optimizer defaults: the run monitor uses `fast`; final figures use
 `publication` / `clean`. Change the variant with `publication_variant=` on the
 optimizer constructor, or:
 
@@ -148,8 +116,14 @@ apply_style("publication", variant="ieee")
 Individual `plot_*` functions call `apply_style()` themselves using the active
 session style.
 
+To preview every style and figure without running an optimization:
+
+```bash
+python examples/preview_plot_styles.py --output-dir /tmp/topasmoo_plots
+```
+
 ## API Reference
 
-See docstrings under `TopasMOO/plotting/` (`pareto.py`, `parallel.py`,
-`petal.py`, `correlation.py`, `gp_correlation.py`, `convergence.py`,
-`comprehensive.py`, `style.py`).
+See docstrings under `TopasMOO/plotting/` (`pareto.py`, `progress.py`,
+`table.py`, `parallel.py`, `decision.py`, `convergence.py`, `correlation.py`,
+`gp_correlation.py`, `comprehensive.py`, `style.py`).

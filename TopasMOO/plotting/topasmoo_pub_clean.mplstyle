@@ -58,3 +58,7 @@ legend.facecolor: white
 legend.edgecolor: D0D0D0
 legend.borderpad: 0.35
 legend.labelspacing: 0.35
+
+# Embed TrueType (Type 42) fonts: journals reject or flag Type 3 fonts.
+pdf.fonttype: 42
+ps.fonttype: 42

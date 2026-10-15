@@ -114,11 +114,11 @@ class TestMOBOSmoke:
 
         data = RunData.from_optimizer(opt)
         assert data.pareto_objectives.shape[1] == 2
-        assert len(data.hypervolume_history) >= 1
         assert data.n_objectives == 2
-        assert data.observed_objectives is opt.train_Y
+        np.testing.assert_array_equal(data.evaluated_objectives, opt.train_Y)
+        np.testing.assert_array_equal(data.eligible, opt.eligible_mask())
+        np.testing.assert_array_equal(data.failed, opt.train_failed)
         assert data.gp_prediction_history is opt.gp_prediction_history
-        assert data.failed_mask is opt.train_failed
 
         running = Path(opt._ParetoRunningLogFileLoc)
         final = Path(opt._ParetoLogFileLoc)

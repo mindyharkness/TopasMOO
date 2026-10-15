@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
 
+from .pareto import display_objectives
 from .style import (
     ACCENT_COLOR,
     SINGLE_COL_WIDTH,
@@ -60,7 +61,7 @@ def plot_gp_prediction_correlation(
     *,
     objective_names: Sequence[str] | None = None,
     valid_mask: np.ndarray | None = None,
-    title: str = "GP Prediction Correlation",
+    maximize: Sequence[bool] | None = None,
     dpi: int | None = None,
 ) -> np.ndarray:
     """Plot prospective GP predictions against observed objective values.
@@ -79,7 +80,8 @@ def plot_gp_prediction_correlation(
     :param objective_names: Optional label for each objective.
     :param valid_mask: Optional boolean mask selecting observations to include,
         for example to exclude penalized evaluation failures.
-    :param title: Figure super-title.
+    :param maximize: Per-objective display flags; maximized objectives are
+        shown with their sign flipped (observed and predicted alike).
     :param dpi: Raster resolution (defaults to the publication DPI floor).
 
     :returns: A 2-D array of matplotlib Axes. Unused trailing panels are hidden.
@@ -113,6 +115,8 @@ def plot_gp_prediction_correlation(
                 f"got shape {np.shape(valid_mask)} for {n_observations} observations."
             )
 
+    observed = display_objectives(observed, maximize)
+    predicted = display_objectives(predicted, maximize)
     apply_style()
     n_cols = min(3, n_objectives)
     n_rows = ceil(n_objectives / n_cols)
@@ -175,7 +179,6 @@ def plot_gp_prediction_correlation(
             transform=ax.transAxes,
             ha="left",
             va="top",
-            bbox={"facecolor": "white", "edgecolor": "0.75", "alpha": 0.85},
         )
 
         objective_label = (
@@ -188,6 +191,5 @@ def plot_gp_prediction_correlation(
         ax.set_title(objective_label)
         format_publication_axes(ax)
 
-    fig.suptitle(title)
     finalize_figure(fig, save_path, dpi=dpi)
     return axes

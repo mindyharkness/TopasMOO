@@ -25,6 +25,9 @@ def main():
         "start_point": np.array([1.5, 2.0, 25.0]),
         "n_generations": 10,
         "n_objectives": 2,
+        "ObjectiveNames": ["Off-axis peak dose (pGy)", "Peak dose (pGy)"],
+        # The callback returns -peak (everything is minimized); plots show +peak.
+        "Maximize": [False, True],
     }
     optimizer_class, settings = {
         "mobo": (MOBOOptimizer, {"n_init": 15, "batch_size": 2, "acquisition": "qlognehvi"}),
