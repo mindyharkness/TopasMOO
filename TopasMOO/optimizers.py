@@ -25,11 +25,12 @@ from pathlib import Path
 
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.algorithms.moo.nsga3 import NSGA3
+from pymoo.algorithms.moo.nsga3 import NSGA3, comp_by_cv_then_random
 from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 from pymoo.operators.sampling.rnd import FloatRandomSampling
+from pymoo.operators.selection.tournament import TournamentSelection
 from pymoo.termination import get_termination
 from pymoo.util.ref_dirs import get_reference_directions
 
@@ -234,13 +235,15 @@ class TopasMOOBaseClass(ABC):
         self._last_constraint_values = None
         self._eval_cache = {}
 
-        # Expand ``~`` here (the export line in RunIteration.sh is shell-quoted,
-        # which would otherwise prevent bash from expanding a literal ``~``).
-        self.G4dataLocation = os.path.expanduser(str(G4dataLocation))
+        # Paths used by RunIteration.sh are made absolute here: the script runs
+        # with cwd=TopasScripts, so a relative path would silently fail every
+        # evaluation. ``~`` is expanded first because the export line is
+        # shell-quoted, which would otherwise prevent bash from expanding it.
+        self.G4dataLocation = os.path.abspath(os.path.expanduser(str(G4dataLocation)))
         self.ReadMeText = ReadMeText
         self.ShellScriptHeader = ShellScriptHeader
         self.KeepAllResults = KeepAllResults
-        self.BaseDirectory = BaseDirectory
+        self.BaseDirectory = os.path.abspath(BaseDirectory)
         self.OptimizationDirectory = OptimizationDirectory
 
         if not os.path.isdir(BaseDirectory):
@@ -330,6 +333,8 @@ class TopasMOOBaseClass(ABC):
             logger.warning(
                 f"Entering test mode because topas location = {self.TopasLocation}"
             )
+        else:
+            self.TopasLocation = Path(os.path.abspath(self.TopasLocation))
 
         # Load user defined model generator and objective function
         generate_mod = _import_from_absolute_path(Path(self.OptimizationDirectory) / "GenerateTopasScripts.py")
@@ -627,12 +632,14 @@ class TopasMOOBaseClass(ABC):
         """
         with open(self._LogFileLoc, "a") as f:
             Entry = f"Iteration: {self.evaluation_index}"
+            # Significant digits, not fixed decimals: plots read this file, and
+            # small objectives (e.g. raw TOPAS doses in Gy) must not round to 0.
             for Parameter, value in zip(self.ParameterNames, np.ravel(x), strict=True):
-                Entry = Entry + f", {Parameter}: {value: 1.2f}"
+                Entry = Entry + f", {Parameter}: {value:.6g}"
 
             # Log all objective function values
             for i, of_val in enumerate(objective_values):
-                Entry = Entry + f", ObjectiveFunction_{i+1}: {of_val: 1.2f}"
+                Entry = Entry + f", ObjectiveFunction_{i+1}: {of_val:.6g}"
 
             Entry = Entry + "\n"
             f.write(Entry)
@@ -718,7 +725,27 @@ class TopasMOOBaseClass(ABC):
         )
 
     def _write_final_log_entry(self):
-        """Append a short completion summary and Pareto count to the log file."""
+        """Append a short completion summary and Pareto count to the log file.
+
+        Warns when the run "completes" without a usable result, which is easy
+        to miss otherwise: every evaluated design failed (the front holds
+        penalty rows for NSGA-II/III, nothing for MOBO), or no design satisfied
+        the constraints (empty front). ``_eval_failed`` covers designs replayed
+        from the cache on resume.
+        """
+        warning = None
+        if self._eval_failed and all(self._eval_failed.values()):
+            warning = (
+                f"Every evaluation failed ({len(self._eval_failed)} designs); the "
+                "Pareto front contains no real results. Check logs/TopasLogs and "
+                "TopasObjectiveFunction."
+            )
+        elif len(self.ParetoObjectives) == 0:
+            warning = (
+                "No feasible design found; the Pareto front is empty. Check the "
+                "constraint values returned by TopasObjectiveFunction (g <= 0 is "
+                "feasible) or widen the parameter bounds."
+            )
         with open(self._LogFileLoc, "a") as f:
             Entry = f'\n{"="*80}\n'
             Entry += f"Optimization Complete: Found {len(self.ParetoObjectives)} Pareto optimal solutions\n"
@@ -727,9 +754,13 @@ class TopasMOOBaseClass(ABC):
                     f"Penalized evaluations (failed or non-finite): "
                     f"{self._n_failed_evaluations}\n"
                 )
+            if warning:
+                Entry += f"WARNING: {warning}\n"
             Entry += f'{"="*80}\n'
             f.write(Entry)
         logger.info(Entry.strip())
+        if warning:
+            logger.warning(warning)
 
     def _plot_convergence(self):
         """Write objective/parameter convergence and Pareto plots under ``logs``."""
@@ -820,8 +851,14 @@ class TopasMOOBaseClass(ABC):
 
         self.res = algorithm.result()
         self._extract_optimization_history(populations)
-        self.ParetoObjectives = np.atleast_2d(np.asarray(self.res.F, dtype=float))
-        self.ParetoDecisionVars = np.atleast_2d(np.asarray(self.res.X, dtype=float))
+        if self.res.F is None:
+            # pymoo reports no optimum when no design was feasible; keep the
+            # same empty shapes MOBOOptimizer uses instead of a 1x1 NaN array.
+            self.ParetoObjectives = np.empty((0, self.n_objectives))
+            self.ParetoDecisionVars = np.empty((0, len(self.ParameterNames)))
+        else:
+            self.ParetoObjectives = np.atleast_2d(np.asarray(self.res.F, dtype=float))
+            self.ParetoDecisionVars = np.atleast_2d(np.asarray(self.res.X, dtype=float))
         LogParetoFrontToFile(
             self._ParetoLogFileLoc,
             self.ParetoObjectives,
@@ -871,12 +908,18 @@ class TopasMOOBaseClass(ABC):
             logger.info("Final hypervolume: %.6f", self.HypervolumeHistory[-1])
 
     def _save_state_checkpoint(self, algorithm):
-        """Persist pymoo state without its user-module problem reference."""
+        """Persist pymoo state without its user-module problem reference.
+
+        Written to a temporary file and swapped in, so a failed dump never
+        replaces the last good checkpoint with a truncated one.
+        """
         problem, history = algorithm.problem, algorithm.history
         algorithm.problem, algorithm.history = None, []
+        checkpoint_tmp = self._checkpoint_loc + ".tmp"
         try:
-            with open(self._checkpoint_loc, "wb") as f:
+            with open(checkpoint_tmp, "wb") as f:
                 pickle.dump(algorithm, f)
+            os.replace(checkpoint_tmp, self._checkpoint_loc)
         except Exception as exc:
             logger.warning("Could not write algorithm checkpoint: %s", exc)
         finally:
@@ -1355,6 +1398,16 @@ class _StartPointSampling(FloatRandomSampling):
         return X
 
 
+def _nsga3_tournament(pop, P, **kwargs):
+    """NSGA-III's default tournament comparison, reachable by pickle.
+
+    pymoo >= 0.6.1.6 wraps ``comp_by_cv_then_random`` in a closure decorator
+    that pickle cannot reference, which broke every NSGA-III checkpoint. This
+    module-level delegate keeps identical selection behavior.
+    """
+    return comp_by_cv_then_random(pop, P, **kwargs)
+
+
 class NSGAII_Optimizer(TopasMOOBaseClass):
     """NSGA-II (pymoo) for multi-objective TOPAS optimization.
 
@@ -1501,6 +1554,7 @@ class NSGAIII_Optimizer(TopasMOOBaseClass):
             pop_size=self.pop_size,
             ref_dirs=self.ref_dirs,
             sampling=_StartPointSampling(self.StartingValues),
+            selection=TournamentSelection(func_comp=_nsga3_tournament),
             crossover=SBX(eta=15, prob=0.9),
             mutation=PM(eta=20),
             eliminate_duplicates=eliminate_duplicates,

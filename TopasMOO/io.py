@@ -93,6 +93,7 @@ def LogParetoFrontToFile(
         )
         header += list(ParameterNames)
     table = np.column_stack(columns)
-    fmt = ["%d"] + ["%.6f"] * (table.shape[1] - 1)
+    # Significant digits so small objectives (e.g. doses in Gy) are not written as 0.
+    fmt = ["%d"] + ["%.6g"] * (table.shape[1] - 1)
     np.savetxt(os.fspath(LogFilePath), table, fmt=fmt, delimiter=",",
                header=",".join(header), comments="")
