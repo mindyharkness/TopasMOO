@@ -27,7 +27,7 @@ __author__ = "Mindy Harkness"
 try:
     __version__ = importlib.metadata.version("topasmoo")
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.3.0-dev"
+    __version__ = "0.3.0"
 
 # Exceptions
 from .exceptions import (
