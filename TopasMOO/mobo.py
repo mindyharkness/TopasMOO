@@ -302,6 +302,10 @@ class MOBOOptimizer(TopasMOOBaseClass):
         # Memoized TopasObjectiveVariances lookup; see _objective_variance_callable.
         self._variance_fn: Any = _UNRESOLVED
 
+        # One hypervolume entry per batch, and (batch_index, batch_Y) per batch.
+        self.HypervolumeHistory = []
+        self.PopulationHistory = []
+
         # Base class needs directories/params before we know d for n_init default.
         super().__init__(**kwds)
 
@@ -744,10 +748,7 @@ class MOBOOptimizer(TopasMOOBaseClass):
 
         return bt["infer_reference_point"](Y_max)
 
-    # Shared margin formula with NSGAII_Optimizer
-    # MOBO feeds eligible observations into that formula, NSGA-II feeds each
-    # generation's population. Both report one HypervolumeHistory entry per
-    # algorithm step.
+    # Same margin formula as the hypervolume plots, applied to eligible observations.
     _reference_from_objectives = staticmethod(hypervolume_reference_point)
 
     def _history_prefix_lengths(self) -> list[int]:

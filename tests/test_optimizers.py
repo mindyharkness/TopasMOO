@@ -382,19 +382,6 @@ class TestOptimizationHistory:
 
         assert optimizer.RunOptimization() == algorithm_name
 
-    @pytest.mark.parametrize("optimizer_class", [tmo.NSGAII_Optimizer, tmo.NSGAIII_Optimizer])
-    def test_history_is_extracted_per_generation(
-        self, optimizer_class, temp_dir, basic_params, opt_dir
-    ):
-        optimizer = self._make_optimizer(optimizer_class, temp_dir, basic_params, opt_dir)
-        first = np.array([[1.0, 4.0], [2.0, 3.0], [3.0, 2.0], [4.0, 1.0]])
-
-        optimizer._extract_optimization_history([first, first * 0.9])
-
-        assert len(optimizer.PopulationHistory) == 2
-        assert len(optimizer.HypervolumeHistory) == 2
-        np.testing.assert_array_equal(optimizer.PopulationHistory[0][1], first)
-
 
 class TestParameterBoundsValidation:
     """Test that parameter bounds are validated correctly"""

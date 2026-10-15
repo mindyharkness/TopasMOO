@@ -41,7 +41,7 @@ from .exceptions import (
     TopasExecutionError,
 )
 from .io import LogParetoFrontToFile, ReadInMultiObjectiveLogFile
-from .metrics import calculate_dominance_rank, hypervolume_reference_point
+from .metrics import calculate_dominance_rank
 from .plotting import GenerateComprehensiveVisualizations
 from .plotting.progress import plot_run_monitor
 from .plotting.style import (
@@ -325,10 +325,6 @@ class TopasMOOBaseClass(ABC):
         self.AllDecisionVariables = []        # Parallel list of decision-variable vectors
         self.ParetoObjectives = []            # Objective values of the non-dominated set
         self.ParetoDecisionVars = None        # Decision variables for Pareto set
-        # One hypervolume entry per algorithm step (NSGA-II generation or MOBO batch).
-        self.HypervolumeHistory = []
-        # List of (step_index, objectives_array) snapshots for plotting.
-        self.PopulationHistory = []
 
         if "~" in str(TopasLocation):
             TopasLocation = os.path.expanduser(str(TopasLocation))
@@ -864,14 +860,11 @@ class TopasMOOBaseClass(ABC):
                 algorithm.n_gen,
             )
 
-        populations = []
         while algorithm.has_next():
             algorithm.next()
-            populations.append(np.asarray(algorithm.pop.get("F")).copy())
             self._save_state_checkpoint(algorithm)
 
         self.res = algorithm.result()
-        self._extract_optimization_history(populations)
         if self.res.F is None:
             # pymoo reports no optimum when no design was feasible; keep the
             # same empty shapes MOBOOptimizer uses instead of a 1x1 NaN array.
@@ -897,36 +890,6 @@ class TopasMOOBaseClass(ABC):
         self._plot_convergence()
         self.GenerateFinalVisualizations()
         return self.res
-
-    def _extract_optimization_history(self, populations):
-        """Fill hypervolume and population history from per-generation objective matrices."""
-        if not populations:
-            return
-
-        from pymoo.indicators.hv import HV
-
-        self.PopulationHistory = [
-            (generation, population.copy())
-            for generation, population in enumerate(populations)
-        ]
-        hv_indicator = HV(
-            ref_point=hypervolume_reference_point(np.vstack(populations))
-        )
-        self.HypervolumeHistory = []
-        for generation, objectives in enumerate(populations):
-            try:
-                self.HypervolumeHistory.append(hv_indicator(objectives))
-            except Exception as exc:
-                logger.warning(
-                    "Could not compute hypervolume for generation %d: %s",
-                    generation,
-                    exc,
-                )
-                self.HypervolumeHistory.append(0.0)
-
-        logger.info("Extracted history for %d generations", len(self.HypervolumeHistory))
-        if self.HypervolumeHistory:
-            logger.info("Final hypervolume: %.6f", self.HypervolumeHistory[-1])
 
     def _save_state_checkpoint(self, algorithm):
         """Persist pymoo state without its user-module problem reference.
